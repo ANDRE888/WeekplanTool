@@ -1,0 +1,14 @@
+﻿# ============================================================
+#  Read-WeekPlan - configuratie / конфигурация
+#  Пути к файлам с данными. Строки с # - комментарии.
+#  Формат: ключ = значение
+# ============================================================
+
+# Путь к файлу сбора коробок (фактическая продукция):
+BoxPrintingFile = C:\Users\andre\Documents\WeekplanTool\Data_boxprintingbin3v7.xlsb
+
+# Папка с файлами недельного плана (daily shift NDwkNN-YYYY.xls):
+PlanFolder = C:\Users\andre\Documents\WeekplanTool
+
+# Лист линии в файле сбора коробок (L9RCDB, L6RCDB, ...):
+RcdbSheet = L9RCDB
