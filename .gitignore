@@ -1,0 +1,7 @@
+# Игнорировать всё, кроме файлов инструмента
+*
+!.gitignore
+!config.txt
+!Read-WeekPlan.cmd
+!Read-WeekPlan.ps1
+!Read-WeekPlan-Web.cmd
