@@ -12,3 +12,15 @@ PlanFolder = C:\Users\andre\Documents\WeekplanTool
 
 # Лист линии в файле сбора коробок (L9RCDB, L6RCDB, ...):
 RcdbSheet = L9RCDB
+
+# ---- Test-BoxCount (коробки по типам + прогноз + простои) ----
+# Лист сырых регистраций коробок:
+# BoxSheet = Boxruw9
+# Явный файл плана (иначе берётся свежий daily shift NDwk*.xls* из PlanFolder):
+# PlanFile = C:\...\daily shift NDwk30-2026.xls
+# Резервный target на смену, если дня нет в плане (или задан -NoPlan):
+# ShiftTarget = 1234
+# Окно для "темпа последних минут" (мин):
+# RecentMinutes = 30
+# Разрыв между коробками, который считается простоем (мин):
+# StopMinutes = 2

@@ -5,3 +5,6 @@
 !Read-WeekPlan.cmd
 !Read-WeekPlan.ps1
 !Read-WeekPlan-Web.cmd
+!Test-BoxCount.ps1
+!Test-BoxCount-Web.cmd
+!Test-BoxCount-Web-2010.cmd
