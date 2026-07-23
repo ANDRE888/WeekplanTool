@@ -108,6 +108,14 @@ function PF($x)  { return ([double]$x).ToString('n1', $script:nl) }
 function PF2($x) { return ([double]$x).ToString('n2', $script:nl) }
 # SVG-coordinaat ALTIJD met punt (InvariantCulture), anders breekt nl-BE komma de SVG
 function SvgN($x) { return ([Math]::Round([double]$x, 2)).ToString([System.Globalization.CultureInfo]::InvariantCulture) }
+# duur (in minuten) -> leesbaar "3 min 56 sec" / "45 sec" / "3 min" (eenheden taalafhankelijk)
+function Format-Dur([double]$minVal) {
+    $totalSec = [int][Math]::Round($minVal * 60); if ($totalSec -lt 0) { $totalSec = 0 }
+    $m = [int][Math]::Floor($totalSec / 60); $s = $totalSec % 60
+    if ($m -le 0) { return ('{0} {1}' -f $s, (T 'svg_sec')) }
+    if ($s -eq 0) { return ('{0} {1}' -f $m, (T 'svg_min')) }
+    return ('{0} {1} {2} {3}' -f $m, (T 'svg_min'), $s, (T 'svg_sec'))
+}
 function HtmlEnc([string]$s) {
     if ($null -eq $s) { return "" }
     return ($s -replace '&', '&amp;' -replace '<', '&lt;' -replace '>', '&gt;' -replace '"', '&quot;')
@@ -150,7 +158,7 @@ $script:I18N = @{
   'stops_word' = "Stilstand"
   'stops_bron' = "(gat &gt; {0} min telt als stilstand)"
   'nowstill' = "Lijn staat nu stil: al {0} min geen doos (laatste {1})."
-  'card_stops_sub' = "min in {0} stops &middot; langste {1} min {2}"
+  'card_stops_sub' = "min in {0} stops &middot; langste {1} {2}"
   'card_runtime' = "Draaitijd"
   'card_runtime_sub' = "% &middot; {0} van {1} min"
   'card_net' = "Netto tempo"
@@ -200,6 +208,9 @@ $script:I18N = @{
   'svg_min' = "min"
   'svg_on_target' = "op target-tempo"
   'svg_shift_end_word' = "einde ploeg"
+  'stops_show_all' = "Alle {0} stops tonen"
+  'stops_collapse' = "Inklappen"
+  'svg_sec' = "sec"
 }
 'fr' = @{
   'h1' = "Boîtes par type de produit &mdash; équipe en cours"
@@ -233,7 +244,7 @@ $script:I18N = @{
   'stops_word' = "Arrêts"
   'stops_bron' = "(écart &gt; {0} min compte comme arrêt)"
   'nowstill' = "La ligne est à l'arrêt : déjà {0} min sans boîte (dernière {1})."
-  'card_stops_sub' = "min en {0} arrêts &middot; le plus long {1} min {2}"
+  'card_stops_sub' = "min en {0} arrêts &middot; le plus long {1} {2}"
   'card_runtime' = "Temps de marche"
   'card_runtime_sub' = "% &middot; {0} sur {1} min"
   'card_net' = "Cadence nette"
@@ -283,6 +294,9 @@ $script:I18N = @{
   'svg_min' = "min"
   'svg_on_target' = "à la cadence cible"
   'svg_shift_end_word' = "fin équipe"
+  'stops_show_all' = "Afficher les {0} arrêts"
+  'stops_collapse' = "Réduire"
+  'svg_sec' = "s"
 }
 'en' = @{
   'h1' = "Boxes per product type &mdash; current shift"
@@ -316,7 +330,7 @@ $script:I18N = @{
   'stops_word' = "Downtime"
   'stops_bron' = "(gap &gt; {0} min counts as downtime)"
   'nowstill' = "Line is stopped now: {0} min without a box (last {1})."
-  'card_stops_sub' = "min in {0} stops &middot; longest {1} min {2}"
+  'card_stops_sub' = "min in {0} stops &middot; longest {1} {2}"
   'card_runtime' = "Running time"
   'card_runtime_sub' = "% &middot; {0} of {1} min"
   'card_net' = "Net rate"
@@ -366,6 +380,9 @@ $script:I18N = @{
   'svg_min' = "min"
   'svg_on_target' = "on target rate"
   'svg_shift_end_word' = "shift end"
+  'stops_show_all' = "Show all {0} stops"
+  'stops_collapse' = "Collapse"
+  'svg_sec' = "sec"
 }
 'ru' = @{
   'h1' = "Коробки по типу продукта &mdash; текущая смена"
@@ -399,7 +416,7 @@ $script:I18N = @{
   'stops_word' = "Простой"
   'stops_bron' = "(разрыв &gt; {0} мин считается простоем)"
   'nowstill' = "Линия сейчас стоит: уже {0} мин нет коробок (последняя {1})."
-  'card_stops_sub' = "мин в {0} остановках &middot; дольше всего {1} мин {2}"
+  'card_stops_sub' = "мин в {0} остановках &middot; дольше всего {1} {2}"
   'card_runtime' = "Время работы"
   'card_runtime_sub' = "% &middot; {0} из {1} мин"
   'card_net' = "Чистый темп"
@@ -449,6 +466,9 @@ $script:I18N = @{
   'svg_min' = "мин"
   'svg_on_target' = "на целевом темпе"
   'svg_shift_end_word' = "конец смены"
+  'stops_show_all' = "Показать все ({0})"
+  'stops_collapse' = "Свернуть"
+  'svg_sec' = "сек"
 }
 }
 function T([string]$k) {
@@ -966,7 +986,7 @@ function New-MinuteChartSvg($d) {
         [void]$sb.Append("<line x1='$(SvgN $xNow)' y1='$T' x2='$(SvgN $xNow)' y2='$baseY' stroke='#64748b' stroke-width='1' stroke-dasharray='3 3'/>")
     }
 
-    # staven (dozen per minuut)
+    # ---- ruwe staven per minuut (licht doorschijnend) + vloeiende trendlijn erbovenop ----
     $barW = [Math]::Max(1.2, ($plotW / $n) * 0.85)
     $bws  = SvgN $barW
     for ($i = 0; $i -lt $n; $i++) {
@@ -974,7 +994,30 @@ function New-MinuteChartSvg($d) {
         $x = $L + ($i / $n) * $plotW
         $h = ($v / $yTop) * $plotH
         $y = $baseY - $h
-        [void]$sb.Append("<rect x='$(SvgN $x)' y='$(SvgN $y)' width='$bws' height='$(SvgN $h)' fill='#38bdf8'/>")
+        [void]$sb.Append("<rect x='$(SvgN $x)' y='$(SvgN $y)' width='$bws' height='$(SvgN $h)' fill='#38bdf8' opacity='0.28'/>")
+    }
+
+    # tot waar reikt de data ('nu'); daarna geen trendlijn tekenen
+    $nowIdx = [int][Math]::Round([double]$d.NowOffsetMin)
+    if ($nowIdx -le 0 -or $nowIdx -gt $n) {
+        $nowIdx = 0
+        for ($i = 0; $i -lt $n; $i++) { if ($mins[$i] -gt 0) { $nowIdx = $i + 1 } }
+    }
+    # voortschrijdend gemiddelde (venster +/- $maR min) = vloeiende trend van dozen/min
+    if ($nowIdx -ge 2 -and $maxV -gt 0) {
+        $maR = 7
+        $maPts = New-Object System.Text.StringBuilder
+        for ($i = 0; $i -lt $nowIdx; $i++) {
+            $lo = [Math]::Max(0, $i - $maR); $hi = [Math]::Min($nowIdx - 1, $i + $maR)
+            $sum = 0.0; $cnt = 0
+            for ($k = $lo; $k -le $hi; $k++) { $sum += $mins[$k]; $cnt++ }
+            $avg = if ($cnt -gt 0) { $sum / $cnt } else { 0 }
+            $x = $L + ($i / $n) * $plotW
+            $y = $baseY - ($avg / $yTop) * $plotH
+            [void]$maPts.Append($(if ($i -eq 0) { 'M ' } else { ' L ' }))
+            [void]$maPts.Append("$(SvgN $x) $(SvgN $y)")
+        }
+        [void]$sb.Append("<path d='$($maPts.ToString())' fill='none' stroke='#38bdf8' stroke-width='2.4' stroke-linejoin='round' stroke-linecap='round'/>")
     }
 
     # horizontale target-lijn
@@ -1029,6 +1072,7 @@ function New-ForecastChartSvg($d) {
     $sb = New-Object System.Text.StringBuilder
     [void]$sb.Append("<svg viewBox='0 0 $W $H' width='100%' preserveAspectRatio='xMidYMid meet' xmlns='http://www.w3.org/2000/svg' font-family='Segoe UI,system-ui,Arial,sans-serif'>")
     [void]$sb.Append("<rect x='$L' y='$T' width='$plotW' height='$plotH' fill='#0b1220' stroke='#334155' rx='6'/>")
+    [void]$sb.Append("<defs><linearGradient id='fcArea' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='#38bdf8' stop-opacity='0.45'/><stop offset='1' stop-color='#38bdf8' stop-opacity='0'/></linearGradient></defs>")
 
     # toekomst-zone
     $xNow = & $MapX $nowOff
@@ -1053,6 +1097,8 @@ function New-ForecastChartSvg($d) {
         }
     }
     [void]$pts.Append("$(SvgN $xNow),$(SvgN (& $MapY ([double]$d.Total)))")
+    # gevuld vlak onder de cumulatieve lijn (gradient) + de lijn erbovenop
+    [void]$sb.Append("<polygon points='$($pts.ToString()) $(SvgN $xNow),$(SvgN $baseY)' fill='url(#fcArea)'/>")
     [void]$sb.Append("<polyline points='$($pts.ToString())' fill='none' stroke='#38bdf8' stroke-width='2.5' stroke-linejoin='round'/>")
 
     # prognose: van (nu, gemaakt) naar (ploegeinde, verwacht)
@@ -1113,13 +1159,17 @@ function New-StopStripSvg($d) {
 
     $sb = New-Object System.Text.StringBuilder
     [void]$sb.Append("<svg viewBox='0 0 $W $H' width='100%' preserveAspectRatio='xMidYMid meet' xmlns='http://www.w3.org/2000/svg' font-family='Segoe UI,system-ui,Arial,sans-serif'>")
-    # hele ploeg = nog te gaan (grijs), verstreken deel = draait (groen)
-    [void]$sb.Append("<rect x='$L' y='$T' width='$plotW' height='$barH' fill='#1e293b' stroke='#334155' rx='4'/>")
+    # afgeronde baan: hele ploeg = nog te gaan (grijs)
+    [void]$sb.Append("<rect x='$L' y='$T' width='$plotW' height='$barH' rx='7' fill='#172033' stroke='#334155'/>")
     $nowOff = [double]$d.NowOffsetMin; if ($nowOff -lt 0) { $nowOff = 0 }; if ($nowOff -gt $n) { $nowOff = $n }
     $wNow = ($nowOff / $n) * $plotW
-    [void]$sb.Append("<rect x='$L' y='$T' width='$(SvgN $wNow)' height='$barH' fill='#10b981' rx='4'/>")
+    # alle segmenten binnen de afgeronde baan clippen (blijven netjes binnen de rand)
+    [void]$sb.Append("<clipPath id='stripClip'><rect x='$L' y='$T' width='$plotW' height='$barH' rx='7'/></clipPath>")
+    [void]$sb.Append("<g clip-path='url(#stripClip)'>")
+    # verstreken deel = draait (groen)
+    [void]$sb.Append("<rect x='$L' y='$T' width='$(SvgN $wNow)' height='$barH' fill='#10b981'/>")
 
-    # stilstanden er rood overheen
+    # stilstanden er overheen
     foreach ($s in $d.Stops) {
         $a = ($s.From - $d.ShiftStart).TotalMinutes; if ($a -lt 0) { $a = 0 }
         $b = ($s.To   - $d.ShiftStart).TotalMinutes; if ($b -gt $n) { $b = $n }
@@ -1133,6 +1183,7 @@ function New-StopStripSvg($d) {
             [void]$sb.Append("<text x='$(SvgN ($x + $w / 2))' y='$($T + 17)' fill='#450a0a' font-size='11' font-weight='600' text-anchor='middle'>$([int][Math]::Round($s.Min)) $(T 'svg_min')</text>")
         }
     }
+    [void]$sb.Append("</g>")
 
     # uur-ticks
     for ($m = 0; $m -le $n; $m += 60) {
@@ -1179,6 +1230,15 @@ function New-BehindChartSvg($d) {
     }
     # nullijn = precies op target-tempo
     $y0 = & $MapY 0
+    # diverging vlak: groen boven de nullijn (voor op schema), rood eronder (achter)
+    $segW = SvgN (($plotW / $n) * 2 + 0.6)
+    for ($i = 0; $i -lt $vals.Count; $i += 2) {
+        $yv = & $MapY $vals[$i]
+        $yA = [Math]::Min($yv, $y0); $hh = [Math]::Abs($yv - $y0)
+        if ($hh -lt 0.4) { continue }
+        $col2 = if ($vals[$i] -ge 0) { '#34d399' } else { '#f87171' }
+        [void]$sb.Append("<rect x='$(SvgN (& $MapX ($i + 1)))' y='$(SvgN $yA)' width='$segW' height='$(SvgN $hh)' fill='$col2' opacity='0.4'/>")
+    }
     [void]$sb.Append("<line x1='$L' y1='$(SvgN $y0)' x2='$($L + $plotW)' y2='$(SvgN $y0)' stroke='#fbbf24' stroke-width='2' stroke-dasharray='6 4'/>")
     [void]$sb.Append("<text x='$($L + 6)' y='$(SvgN ($y0 - 6))' fill='#fbbf24' font-size='12'>$(T 'svg_on_target')</text>")
 
@@ -1192,7 +1252,7 @@ function New-BehindChartSvg($d) {
                 [void]$pts.Append("$(SvgN (& $MapX ($i + 1))),$(SvgN (& $MapY $vals[$i])) ")
             }
         }
-        [void]$sb.Append("<polyline points='$($pts.ToString().Trim())' fill='none' stroke='$col' stroke-width='2.5' stroke-linejoin='round'/>")
+        [void]$sb.Append("<polyline points='$($pts.ToString().Trim())' fill='none' stroke='#e2e8f0' stroke-width='1.8' opacity='0.85' stroke-linejoin='round'/>")
     }
 
     # doortrekken naar ploegeinde volgens de prognose
@@ -1281,7 +1341,7 @@ function Render-Console($d) {
         Write-Host ""
         Write-Host ("STILSTAND EN ACHTERSTAND (gat > {0} min telt als stilstand):" -f (PF $d.StopLimit)) -ForegroundColor White
         Write-Host ("  Stilstand            : {0} min in {1} stops" -f (NF $d.StopMin), $d.StopCount) -ForegroundColor $(if ($d.StopMin -gt 0) { 'Yellow' } else { 'Gray' })
-        if ($d.LongestText) { Write-Host ("  Langste stop         : {0} min ({1})" -f (PF $d.LongestMin), $d.LongestText) -ForegroundColor DarkGray }
+        if ($d.LongestText) { Write-Host ("  Langste stop         : {0} ({1})" -f (Format-Dur $d.LongestMin), $d.LongestText) -ForegroundColor DarkGray }
         Write-Host ("  Draaitijd            : {0} van {1} min ({2} %)" -f (NF $d.RunMin), (NF $d.ElapsedShiftMin), (PF $d.AvailPct)) -ForegroundColor DarkGray
         Write-Host ("  Netto tempo (draait) : {0} dozen/min" -f (PF2 $d.NetPerMin)) -ForegroundColor DarkGray
         Write-Host ("  Verlies stilstand    : ~{0} dozen" -f (NF $d.LostBoxes)) -ForegroundColor DarkGray
@@ -1293,7 +1353,7 @@ function Render-Console($d) {
         Write-Host $hdr -ForegroundColor DarkGray
         foreach ($s in $sel.Items) {
             $mark = if ($s.IsLongest) { "  << langste" } else { "" }
-            Write-Host ("    {0}-{1}  {2,6} min  {3}{4}" -f $s.From.ToString('HH:mm'), $s.To.ToString('HH:mm'), (PF $s.Min), $s.Kind, $mark) -ForegroundColor DarkGray
+            Write-Host ("    {0}-{1}  {2,-13}  {3}{4}" -f $s.From.ToString('HH:mm'), $s.To.ToString('HH:mm'), (Format-Dur $s.Min), $s.Kind, $mark) -ForegroundColor DarkGray
         }
     }
 }
@@ -1397,18 +1457,22 @@ function Render-Html($d, [string]$lang = 'nl') {
             $bnCls = if ($bn -ge 0) { "done" } else { "behind" }
             $bnTxt = if ($bn -ge 0) { "+$(NF $bn)" } else { (NF $bn) }
             $nowStillHtml = if ($d.NowStill) { "<div class='err'>$((T 'nowstill') -f (NF $d.StillMin), (HtmlEnc $d.LastText))</div>" } else { "" }
-            $stopSel  = Get-StopsForDisplay $d 24
+            $allStops = @($d.Stops | Sort-Object From)
+            $stopTotal = $allStops.Count
+            $stopCap = 24
             $stopRows = ""
-            foreach ($s in $stopSel.Items) {
+            for ($si = 0; $si -lt $stopTotal; $si++) {
+                $s = $allStops[$si]
                 $kindTxt = switch ($s.Kind) { 'opstart' { T 'kind_startup' } 'nu' { T 'kind_nowstill' } default { T 'kind_stop' } }
                 if ($s.IsLongest) { $kindTxt += " <span class='nu'>$(T 'kind_longest')</span>" }
-                $stopRows += "<tr><td class='sku'>$($s.From.ToString('HH:mm')) &ndash; $($s.To.ToString('HH:mm'))</td><td class='num'>$(PF $s.Min) $(T 'svg_min')</td><td>$kindTxt</td></tr>"
+                $rowCls = if ($si -ge $stopCap) { " class='stop-extra'" } else { "" }
+                $stopRows += "<tr$rowCls><td class='sku'>$($s.From.ToString('HH:mm')) &ndash; $($s.To.ToString('HH:mm'))</td><td class='dur'>$(Format-Dur $s.Min)</td><td>$kindTxt</td></tr>"
             }
-            $stopHead = if ($stopSel.Trimmed) { (T 'stops_head_trim') -f $stopSel.Shown, $stopSel.Total } else { (T 'stops_head_all') -f $stopSel.Total }
+            $stopHead = (T 'stops_head_all') -f $stopTotal
             $st = "<h2 class='sec'>$(T 'stops_word') <span class='bron'>$((T 'stops_bron') -f (PF $d.StopLimit))</span></h2>$nowStillHtml" +
                   "<div class='chart'>$(New-StopStripSvg $d)</div>" +
                   "<div class='cards'>" +
-                  "<div class='card'><div class='lbl'>$(T 'stops_word')</div><div class='val $stillCls'>$(NF $d.StopMin)</div><div class='sub'>$((T 'card_stops_sub') -f $d.StopCount, (PF $d.LongestMin), (HtmlEnc $d.LongestText))</div></div>" +
+                  "<div class='card'><div class='lbl'>$(T 'stops_word')</div><div class='val $stillCls'>$(NF $d.StopMin)</div><div class='sub'>$((T 'card_stops_sub') -f $d.StopCount, (Format-Dur $d.LongestMin), (HtmlEnc $d.LongestText))</div></div>" +
                   "<div class='card'><div class='lbl'>$(T 'card_runtime')</div><div class='val $availCls'>$(PF $d.AvailPct)</div><div class='sub'>$((T 'card_runtime_sub') -f (NF $d.RunMin), (NF $d.ElapsedShiftMin))</div></div>" +
                   "<div class='card'><div class='lbl'>$(T 'card_net')</div><div class='val'>$(PF2 $d.NetPerMin)</div><div class='sub'>$(T 'card_net_sub')</div></div>" +
                   "<div class='card'><div class='lbl'>$(T 'card_loss')</div><div class='val behind'>$(NF $d.LostBoxes)</div><div class='sub'>$(T 'card_loss_sub')</div></div>" +
@@ -1418,7 +1482,16 @@ function Render-Html($d, [string]$lang = 'nl') {
                   "<div class='cards'><div class='card hi'><div class='lbl'>$(T 'card_behind')</div><div class='val $bnCls'>$bnTxt</div>" +
                   "<div class='sub'>$((T 'card_behind_sub') -f (PF2 $d.TargetPerMin))</div></div></div>"
             if ($stopRows) {
-                $st += "<table class='shift'><thead><tr><th>$stopHead</th><th>$(T 'th_duration')</th><th>$(T 'th_kind')</th></tr></thead><tbody>$stopRows</tbody></table>"
+                $tbl = "<table class='shift'><thead><tr><th>$stopHead</th><th>$(T 'th_duration')</th><th>$(T 'th_kind')</th></tr></thead><tbody>$stopRows</tbody></table>"
+                if ($stopTotal -gt $stopCap) {
+                    $moreLbl = (T 'stops_show_all') -f $stopTotal
+                    $lessLbl = T 'stops_collapse'
+                    $btn = "<button type='button' class='showall' data-more='$moreLbl' data-less='$lessLbl'>$moreLbl</button>"
+                    $scr = "<script>(function(){var w=document.getElementById('stopsWrap');if(!w)return;var b=w.querySelector('.showall');if(!b)return;function set(o){w.classList.toggle('open',o);b.textContent=o?b.dataset.less:b.dataset.more;}try{set(localStorage.getItem('bc_stops_open')==='1');}catch(e){}b.addEventListener('click',function(){var o=!w.classList.contains('open');set(o);try{localStorage.setItem('bc_stops_open',o?'1':'0');}catch(e){}});})();</script>"
+                    $st += "<div id='stopsWrap'>$tbl$btn</div>$scr"
+                } else {
+                    $st += $tbl
+                }
             }
         }
 
@@ -1458,6 +1531,7 @@ function Render-Html($d, [string]$lang = 'nl') {
            "table.shift{width:100%;border-collapse:collapse;background:#1e293b;border-radius:10px;overflow:hidden}" +
            ".shift th{text-align:left;font-size:11px;text-transform:uppercase;color:#94a3b8;padding:10px 12px;background:#172033}" +
            ".shift td{padding:11px 12px;border-top:1px solid #334155;font-size:16px}.shift td.num{text-align:right;font-variant-numeric:tabular-nums}" +
+           ".shift td.dur{text-align:left;font-variant-numeric:tabular-nums}" +
            ".shift td.sku{font-weight:600}.done{color:#34d399;font-weight:600}.behind{color:#fbbf24;font-weight:600}" +
            ".shift tr.cur td{background:#14321f}" +
            ".nu{background:#22c55e;color:#06210f;font-size:11px;padding:1px 7px;border-radius:8px;margin-left:4px;vertical-align:middle}" +
@@ -1471,6 +1545,8 @@ function Render-Html($d, [string]$lang = 'nl') {
            ".chart{background:#0b1220;border-radius:10px;padding:8px 8px 2px;overflow-x:auto}.chart svg{display:block}" +
            ".warn{background:#3a2e10;color:#fcd34d;padding:10px 12px;border-radius:8px;margin:10px 0}" +
            ".err{background:#3a1212;color:#fca5a5;padding:10px 12px;border-radius:8px;margin:10px 0}" +
+           "#stopsWrap .stop-extra{display:none}#stopsWrap.open .stop-extra{display:table-row}" +
+           ".showall{margin:10px 0 0;background:#1e293b;border:1px solid #334155;color:#cbd5e1;font-size:13px;padding:7px 14px;border-radius:8px;cursor:pointer}.showall:hover{border-color:#475569;color:#e2e8f0}" +
            ".foot{color:#64748b;font-size:12px;margin-top:22px}"
 
     $langScript = "<script>(function(){var p=new URLSearchParams(location.search);var l=p.get('lang');if(l){try{localStorage.setItem('bc_lang',l)}catch(e){}}else{try{var s=localStorage.getItem('bc_lang');if(s&&s!=='$($script:DefaultLang)'){location.replace('/?lang='+s)}}catch(e){}}})();</script>"
