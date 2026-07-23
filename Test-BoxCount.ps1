@@ -470,13 +470,13 @@ function Get-BoxData {
                 $gap = ($sTs[$k] - $prevTs).TotalMinutes
                 if ($gap -gt $StopMinutes) {
                     $kind = if ($k -eq 0) { 'opstart' } else { 'stop' }
-                    $stopList += [pscustomobject]@{ From = $prevTs; To = $sTs[$k]; Min = $gap; Kind = $kind }
+                    $stopList += [pscustomobject]@{ From = $prevTs; To = $sTs[$k]; Min = $gap; Kind = $kind; IsLongest = $false }
                 }
                 $prevTs = $sTs[$k]
             }
             $tail = ($refNow - $prevTs).TotalMinutes
             if ($tail -gt $StopMinutes) {
-                $stopList += [pscustomobject]@{ From = $prevTs; To = $refNow; Min = $tail; Kind = 'nu' }
+                $stopList += [pscustomobject]@{ From = $prevTs; To = $refNow; Min = $tail; Kind = 'nu'; IsLongest = $false }
                 $d.NowStill = $true; $d.StillMin = [Math]::Round($tail)
             }
 
@@ -495,6 +495,7 @@ function Get-BoxData {
             $d.BehindNow       = $tot - $targetPerMin * $elapsedShift
             if ($stopList.Count -gt 0) {
                 $lg = $stopList | Sort-Object Min -Descending | Select-Object -First 1
+                $lg.IsLongest  = $true          # markering: de lijst zelf blijft op TIJD gesorteerd
                 $d.LongestMin  = $lg.Min
                 $d.LongestText = ('{0}-{1}' -f $lg.From.ToString('HH:mm'), $lg.To.ToString('HH:mm'))
             }
@@ -727,6 +728,25 @@ function New-ForecastChartSvg($d) {
     return $sb.ToString()
 }
 
+# ---- Stops voor weergave: ALTIJD op tijd (chronologisch), nooit op duur ----
+# Zijn er meer stops dan $max, dan worden eerst de langste gekozen en die daarna
+# alsnog op tijd gesorteerd, zodat de lijst niet door de klok heen springt.
+function Get-StopsForDisplay($d, [int]$max) {
+    $all  = @($d.Stops)
+    $list = $all
+    $trimmed = $false
+    if ($max -gt 0 -and $list.Count -gt $max) {
+        $list = @($list | Sort-Object Min -Descending | Select-Object -First $max)
+        $trimmed = $true
+    }
+    return [pscustomobject]@{
+        Items   = @($list | Sort-Object From)
+        Trimmed = $trimmed
+        Shown   = $list.Count
+        Total   = $all.Count
+    }
+}
+
 # ---- SVG: strook 'loopt / staat stil' over de ploeg + uur-ticks ----
 function New-StopStripSvg($d) {
     $W = 1040; $L = 46; $R = 14; $T = 8; $H = 56; $barH = 26
@@ -911,9 +931,12 @@ function Render-Console($d) {
         $bn = [double]$d.BehindNow
         Write-Host ("  Achterstand nu       : {0}{1} dozen t.o.v. target-tempo" -f $(if ($bn -ge 0) { '+' } else { '' }), (NF $bn)) -ForegroundColor $(if ($bn -ge 0) { 'Green' } else { 'Yellow' })
         if ($d.NowStill) { Write-Host ("  LIJN STAAT NU STIL   : sinds {0} min geen doos" -f (NF $d.StillMin)) -ForegroundColor Red }
-        $top = $d.Stops | Sort-Object Min -Descending | Select-Object -First 5
-        foreach ($s in $top) {
-            Write-Host ("    {0}-{1}  {2,6} min  {3}" -f $s.From.ToString('HH:mm'), $s.To.ToString('HH:mm'), (PF $s.Min), $s.Kind) -ForegroundColor DarkGray
+        $sel = Get-StopsForDisplay $d 20
+        $hdr = if ($sel.Trimmed) { "  Stops (langste {0} van {1}, op tijd):" -f $sel.Shown, $sel.Total } else { "  Stops (op tijd)      : {0}" -f $sel.Total }
+        Write-Host $hdr -ForegroundColor DarkGray
+        foreach ($s in $sel.Items) {
+            $mark = if ($s.IsLongest) { "  << langste" } else { "" }
+            Write-Host ("    {0}-{1}  {2,6} min  {3}{4}" -f $s.From.ToString('HH:mm'), $s.To.ToString('HH:mm'), (PF $s.Min), $s.Kind, $mark) -ForegroundColor DarkGray
         }
     }
 }
@@ -978,11 +1001,14 @@ function Render-Html($d) {
             $bnCls = if ($bn -ge 0) { "done" } else { "behind" }
             $bnTxt = if ($bn -ge 0) { "+$(NF $bn)" } else { (NF $bn) }
             $nowStillHtml = if ($d.NowStill) { "<div class='err'>Lijn staat nu stil: al $(NF $d.StillMin) min geen doos (laatste $(HtmlEnc $d.LastText)).</div>" } else { "" }
+            $stopSel  = Get-StopsForDisplay $d 24
             $stopRows = ""
-            foreach ($s in ($d.Stops | Sort-Object Min -Descending | Select-Object -First 6)) {
+            foreach ($s in $stopSel.Items) {
                 $kindTxt = switch ($s.Kind) { 'opstart' { 'opstart ploeg' } 'nu' { 'staat nu stil' } default { 'stop' } }
+                if ($s.IsLongest) { $kindTxt += " <span class='nu'>langste</span>" }
                 $stopRows += "<tr><td class='sku'>$($s.From.ToString('HH:mm')) &ndash; $($s.To.ToString('HH:mm'))</td><td class='num'>$(PF $s.Min) min</td><td>$kindTxt</td></tr>"
             }
+            $stopHead = if ($stopSel.Trimmed) { "Stilstand &mdash; langste $($stopSel.Shown) van $($stopSel.Total), op tijd" } else { "Stilstand &mdash; alle $($stopSel.Total) stops, op tijd" }
             $st = "<h2 class='sec'>Stilstand <span class='bron'>(gat &gt; $(PF $d.StopLimit) min telt als stilstand)</span></h2>$nowStillHtml" +
                   "<div class='chart'>$(New-StopStripSvg $d)</div>" +
                   "<div class='cards'>" +
@@ -996,7 +1022,7 @@ function Render-Html($d) {
                   "<div class='cards'><div class='card hi'><div class='lbl'>Achterstand nu</div><div class='val $bnCls'>$bnTxt</div>" +
                   "<div class='sub'>dozen t.o.v. $(PF2 $d.TargetPerMin)/min</div></div></div>"
             if ($stopRows) {
-                $st += "<table class='shift'><thead><tr><th>Stilstand</th><th>Duur</th><th>Soort</th></tr></thead><tbody>$stopRows</tbody></table>"
+                $st += "<table class='shift'><thead><tr><th>$stopHead</th><th>Duur</th><th>Soort</th></tr></thead><tbody>$stopRows</tbody></table>"
             }
         }
 
