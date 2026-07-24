@@ -1581,14 +1581,14 @@ function Start-WebServer([int]$port) {
     Write-Host "(server bewaakt het bronbestand en herleest ALLEEN bij wijziging; Ctrl+C om te stoppen)" -ForegroundColor DarkGray
     if (-not $NoBrowser) { try { Start-Process $url } catch {} }
 
-    # De server bewaakt zelf het bronbestand: elke ~2s enkel de metadata (goedkoop, ook over een
+    # De server bewaakt zelf het bronbestand: elke ~15s enkel de metadata (goedkoop, ook over een
     # netwerkschijf), en pas als schrijftijd/grootte veranderen wordt de 4 MB via Excel herlezen.
     # Verzoeken worden meteen uit de cache bediend (geen dure lees in het verzoekpad).
     $dataCache = $null; $lastStamp = $null; $lastCheck = [datetime]::MinValue
     try {
         while ($true) {
             # --- 1) bronbestand bewaken ---
-            if (($null -eq $dataCache) -or (([datetime]::Now - $lastCheck).TotalSeconds -ge 2)) {
+            if (($null -eq $dataCache) -or (([datetime]::Now - $lastCheck).TotalSeconds -ge 15)) {
                 $lastCheck = [datetime]::Now
                 $stamp = Get-BoxFileStamp
                 if (($null -eq $dataCache) -or ($null -ne $stamp -and $stamp -ne $lastStamp)) {
