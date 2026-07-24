@@ -168,7 +168,6 @@ $script:I18N = @{
   'sec_behind' = "Achterstand t.o.v. target-tempo"
   'card_behind' = "Achterstand nu"
   'card_behind_sub' = "dozen t.o.v. {0}/min"
-  'stops_head_trim' = "Stilstand &mdash; langste {0} van {1}, chronologisch"
   'stops_head_all' = "Stilstand &mdash; alle {0} stops, chronologisch"
   'th_duration' = "Duur"
   'th_kind' = "Soort"
@@ -254,7 +253,6 @@ $script:I18N = @{
   'sec_behind' = "Retard p/r à la cadence cible"
   'card_behind' = "Retard actuel"
   'card_behind_sub' = "boîtes p/r à {0}/min"
-  'stops_head_trim' = "Arrêts &mdash; les {0} plus longs sur {1}, chronologique"
   'stops_head_all' = "Arrêts &mdash; les {0} arrêts, chronologique"
   'th_duration' = "Durée"
   'th_kind' = "Type"
@@ -340,7 +338,6 @@ $script:I18N = @{
   'sec_behind' = "Behind vs target rate"
   'card_behind' = "Behind now"
   'card_behind_sub' = "boxes vs {0}/min"
-  'stops_head_trim' = "Downtime &mdash; longest {0} of {1}, chronological"
   'stops_head_all' = "Downtime &mdash; all {0} stops, chronological"
   'th_duration' = "Duration"
   'th_kind' = "Kind"
@@ -426,7 +423,6 @@ $script:I18N = @{
   'sec_behind' = "Отставание от целевого темпа"
   'card_behind' = "Отставание сейчас"
   'card_behind_sub' = "коробок относит. {0}/мин"
-  'stops_head_trim' = "Простой &mdash; {0} самых длинных из {1}, по времени"
   'stops_head_all' = "Простой &mdash; все {0} остановок, по времени"
   'th_duration' = "Длит."
   'th_kind' = "Тип"
@@ -543,6 +539,23 @@ function Resolve-BoxFile {
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($cand) { return $cand.FullName }
     throw "Geen box-printing bestand gevonden (config-pad bestaat niet en geen Data_boxprinting*.xls* in $($script:BoxFolder))."
+}
+
+# Goedkope 'is het bronbestand veranderd?'-stempel voor de webserver-bewaking.
+# Lost het pad OPNIEUW op (zo telt ook een nieuwe snapshot-bestandsnaam mee) en leest ALLEEN de
+# metadata (schrijftijd + grootte) - NIET de 4 MB inhoud; dat is een piep-kleine SMB-call.
+# Schrijftijd EN grootte samen = robuuster tegen een enkel veld dat niet meebeweegt.
+# LET OP CACHING: Windows/SMB cachet mapmetadata (standaard ~10s), dus een wijziging kan met die
+# vertraging pas 'gezien' worden. $fi.Refresh() forceert een verse query; de ~10s vertraging is voor
+# een ploegweergave prima. Netwerkhik -> $null (dan blijft de laatste goede cache staan).
+function Get-BoxFileStamp {
+    try { $path = Resolve-BoxFile } catch { return $null }
+    try {
+        $fi = New-Object System.IO.FileInfo($path)
+        $fi.Refresh()
+        if (-not $fi.Exists) { return $null }
+        return ('{0}|{1}|{2}' -f $path, $fi.LastWriteTimeUtc.Ticks, $fi.Length)
+    } catch { return $null }
 }
 
 # ---------- weekplan (daily shift dpp) : target per ploeg ----------
@@ -1362,7 +1375,9 @@ function Render-Console($d) {
 function Render-Html($d, [string]$lang = 'nl') {
     if ($script:Langs -notcontains $lang) { $lang = $script:DefaultLang }
     $script:Lang = $lang
-    $refresh = $IntervalSeconds
+    # de server houdt de data zelf vers (leest bij bestandswijziging), dus de pagina mag vaker en
+    # goedkoop verversen; begrensd op [5..15]s zodat een wijziging snel zichtbaar wordt
+    $refresh = [Math]::Max(5, [Math]::Min([int]$IntervalSeconds, 15))
     $load = (Get-Date).ToString('dd/MM/yyyy HH:mm:ss')
 
     $langbar = "<div class='langbar'>"
@@ -1563,34 +1578,48 @@ function Start-WebServer([int]$port) {
     catch { Write-Host "FOUT: kan poort $port niet openen: $($_.Exception.Message)" -ForegroundColor Red; return }
     $url = "http://127.0.0.1:$port/"
     Write-Host "Webserver actief op $url" -ForegroundColor Green
-    Write-Host "(Ctrl+C om te stoppen)" -ForegroundColor DarkGray
+    Write-Host "(server bewaakt het bronbestand en herleest ALLEEN bij wijziging; Ctrl+C om te stoppen)" -ForegroundColor DarkGray
     if (-not $NoBrowser) { try { Start-Process $url } catch {} }
 
-    $dataCache = $null; $cacheHtml = $null; $cacheTime = [datetime]::MinValue
+    # De server bewaakt zelf het bronbestand: elke ~2s enkel de metadata (goedkoop, ook over een
+    # netwerkschijf), en pas als schrijftijd/grootte veranderen wordt de 4 MB via Excel herlezen.
+    # Verzoeken worden meteen uit de cache bediend (geen dure lees in het verzoekpad).
+    $dataCache = $null; $lastStamp = $null; $lastCheck = [datetime]::MinValue
     try {
         while ($true) {
-            $client = $listener.AcceptTcpClient()
-            try {
-                $client.ReceiveTimeout = 1500
-                $stream = $client.GetStream()
-                $buf = New-Object byte[] 4096
-                $reqLen = 0
-                try { $reqLen = $stream.Read($buf, 0, $buf.Length) } catch {}
-                $reqTxt = if ($reqLen -gt 0) { [System.Text.Encoding]::ASCII.GetString($buf, 0, $reqLen) } else { '' }
-                $lang = Get-ReqLang $reqTxt
-                $age = ([datetime]::Now - $cacheTime).TotalSeconds
-                if ($null -eq $dataCache -or $age -ge $IntervalSeconds) {   # data hooguit ~1x per minuut herlezen (Excel openen is duur)
-                    $dataCache = Get-BoxData
-                    $cacheTime = [datetime]::Now
+            # --- 1) bronbestand bewaken ---
+            if (($null -eq $dataCache) -or (([datetime]::Now - $lastCheck).TotalSeconds -ge 2)) {
+                $lastCheck = [datetime]::Now
+                $stamp = Get-BoxFileStamp
+                if (($null -eq $dataCache) -or ($null -ne $stamp -and $stamp -ne $lastStamp)) {
+                    $dataCache = Get-BoxData            # DUUR: opent Excel + leest de 4 MB
+                    $lastStamp = Get-BoxFileStamp       # stempel van wat we NET gelezen hebben
                 }
-                $cacheHtml = Render-Html $dataCache $lang
-                $body = [System.Text.Encoding]::UTF8.GetBytes($cacheHtml)
-                $head = "HTTP/1.1 200 OK`r`nContent-Type: text/html; charset=utf-8`r`nContent-Length: $($body.Length)`r`nCache-Control: no-cache`r`nConnection: close`r`n`r`n"
-                $hb = [System.Text.Encoding]::ASCII.GetBytes($head)
-                $stream.Write($hb, 0, $hb.Length); $stream.Write($body, 0, $body.Length); $stream.Flush()
             }
-            catch {}
-            finally { $client.Close() }
+            # --- 2) wachtend verzoek direct uit de cache bedienen ---
+            if ($listener.Pending()) {
+                $client = $listener.AcceptTcpClient()
+                try {
+                    $client.ReceiveTimeout = 1500
+                    $stream = $client.GetStream()
+                    $buf = New-Object byte[] 4096
+                    $reqLen = 0
+                    try { $reqLen = $stream.Read($buf, 0, $buf.Length) } catch {}
+                    $reqTxt = if ($reqLen -gt 0) { [System.Text.Encoding]::ASCII.GetString($buf, 0, $reqLen) } else { '' }
+                    $lang = Get-ReqLang $reqTxt
+                    if ($null -eq $dataCache) { $dataCache = Get-BoxData; $lastStamp = Get-BoxFileStamp }
+                    $cacheHtml = Render-Html $dataCache $lang
+                    $body = [System.Text.Encoding]::UTF8.GetBytes($cacheHtml)
+                    $head = "HTTP/1.1 200 OK`r`nContent-Type: text/html; charset=utf-8`r`nContent-Length: $($body.Length)`r`nCache-Control: no-cache`r`nConnection: close`r`n`r`n"
+                    $hb = [System.Text.Encoding]::ASCII.GetBytes($head)
+                    $stream.Write($hb, 0, $hb.Length); $stream.Write($body, 0, $body.Length); $stream.Flush()
+                }
+                catch {}
+                finally { $client.Close() }
+            }
+            else {
+                Start-Sleep -Milliseconds 300
+            }
         }
     }
     finally { $listener.Stop() }
