@@ -210,6 +210,7 @@ $script:I18N = @{
   'warn_hist_read' = "historie niet gelezen: {0}"
   'total' = "Totaal"
   'last_box' = "Laatste doos: {0} &middot; geparseerde rijen: {1}{2}"
+  'last_box_txt' = "{0} - {1} (doos {2})"
   'skip_txt' = " &middot; rij 11 = startwaarde ophaalvenster (niet geteld)"
   'empty_state' = "Geen dozen in deze ploeg-interval. Geparseerde rijen: {0}. Target ploeg {1} &middot; {2}."
   'ts_plan' = "plan {0} (week {1}), {2} ploeg {3}"
@@ -312,6 +313,7 @@ $script:I18N = @{
   'warn_hist_read' = "historique non lu : {0}"
   'total' = "Total"
   'last_box' = "Dernière boîte : {0} &middot; lignes analysées : {1}{2}"
+  'last_box_txt' = "{0} - {1} (boîte {2})"
   'skip_txt' = " &middot; ligne 11 = valeur initiale de la fenêtre (non comptée)"
   'empty_state' = "Aucune boîte dans cet intervalle d'équipe. Lignes analysées : {0}. Objectif équipe {1} &middot; {2}."
   'ts_plan' = "plan {0} (semaine {1}), {2} équipe {3}"
@@ -414,6 +416,7 @@ $script:I18N = @{
   'warn_hist_read' = "history not read: {0}"
   'total' = "Total"
   'last_box' = "Last box: {0} &middot; parsed rows: {1}{2}"
+  'last_box_txt' = "{0} - {1} (box {2})"
   'skip_txt' = " &middot; row 11 = window start value (not counted)"
   'empty_state' = "No boxes in this shift interval. Parsed rows: {0}. Target shift {1} &middot; {2}."
   'ts_plan' = "plan {0} (week {1}), {2} shift {3}"
@@ -516,6 +519,7 @@ $script:I18N = @{
   'warn_hist_read' = "история не прочитана: {0}"
   'total' = "Итого"
   'last_box' = "Последняя коробка: {0} &middot; разобрано строк: {1}{2}"
+  'last_box_txt' = "{0} - {1} (коробка {2})"
   'skip_txt' = " &middot; строка 11 = стартовое значение окна (не учтена)"
   'empty_state' = "Нет коробок в этом интервале смены. Разобрано строк: {0}. Цель смены {1} &middot; {2}."
   'ts_plan' = "план {0} (неделя {1}), {2} смена {3}"
@@ -646,15 +650,20 @@ function Convert-Serial([object]$v) {
     if ($v -is [double] -and $v -gt 40000 -and $v -lt 60000) { return [DateTime]::FromOADate($v) }
     return $null
 }
-# Kandidaat-planbestanden, nieuwste weeknummer eerst.
+# Kandidaat-planbestanden, nieuwste week eerst. LET OP: sorteren op weeknummer ALLEEN gaat in
+# januari mis - week 52 van vorig jaar zou dan boven week 1 van dit jaar komen te staan en met
+# 'Select -First N' viel het juiste bestand er zelfs helemaal uit. Daarom eerst op JAAR sorteren
+# (bestandsnaam 'daily shift NDwk<week>-<jaar>.xls'); geen jaar in de naam -> 0, dus achteraan.
 function Get-PlanCandidates([string]$folder) {
     if ([string]::IsNullOrWhiteSpace($folder) -or -not (Test-Path -LiteralPath $folder)) { return @() }
     $list = Get-ChildItem -LiteralPath $folder -Filter 'daily shift NDwk*.xls*' -File -ErrorAction SilentlyContinue |
             ForEach-Object {
-                $w = 0; if ($_.Name -match 'NDwk0*(\d+)') { $w = [int]$Matches[1] }
-                [pscustomobject]@{ File = $_.FullName; Week = $w; Modified = $_.LastWriteTime }
+                $w = 0; $y = 0
+                if ($_.Name -match 'NDwk0*(\d+)\s*-\s*(\d{4})') { $w = [int]$Matches[1]; $y = [int]$Matches[2] }
+                elseif ($_.Name -match 'NDwk0*(\d+)')           { $w = [int]$Matches[1] }
+                [pscustomobject]@{ File = $_.FullName; Year = $y; Week = $w; Modified = $_.LastWriteTime }
             }
-    return @($list | Sort-Object Week, Modified -Descending)
+    return @($list | Sort-Object Year, Week, Modified -Descending)
 }
 
 # Leest het plan voor productiedag + ploeg. $skus = producten die deze ploeg draaiden,
@@ -676,6 +685,10 @@ function Read-PlanTargets($excel, [string]$planPath, [datetime]$prodDate, [int]$
 
         $vals   = $ws.Range("A1:AD400").Value2
         $rowMax = $vals.GetUpperBound(0); $colMax = $vals.GetUpperBound(1)
+        # ruwe planroostercache: de historie hergebruikt hem (scheelt heropenen). METEEN zetten,
+        # want een bestand van een ANDERE week valt hieronder uit bij 'dag niet in dit bestand'
+        # terwijl de historie juist dat rooster nodig heeft voor de oudere weken.
+        $res.Grid = $vals
 
         # rij 1: WEEK / start / stop
         $startD = $null; $stopD = $null
@@ -721,7 +734,6 @@ function Read-PlanTargets($excel, [string]$planPath, [datetime]$prodDate, [int]$
             }
             if ($lineSkus -and $lineSkus.ContainsKey($sap) -and $v -gt $bestVal) { $bestVal = [double]$v; $best = $sap }
         }
-        $res.Grid = $vals      # ruwe planroostercache: de historie hergebruikt hem (scheelt heropenen)
         $tot = 0.0; foreach ($k2 in $res.PerSku.Keys) { $tot += [double]$res.PerSku[$k2] }
         # nog niets gemaakt deze ploeg -> plan van de lijn gebruiken (en melden welk product verwacht wordt)
         if ($want.Count -eq 0 -and $best -and $bestVal -gt 0) {
@@ -776,12 +788,25 @@ function Get-PlanForColumn($vals, [int]$col, $ranSkus, $lineSkus) {
 # Leest het blad 'L9 datatabel voor 31 dagen': per DAG VAN DE MAAND een blok van 5 kolommen
 # [uur, SAP, doosprint, Machine, aantal]; rij 2 boven het blok = dagnummer, rij 3 = kopjes,
 # data vanaf rij 4. Het blok van dag D bevat de uren 05..23 van D EN 00..04 van D+1 -> dat is
-# precies de PRODUCTIEDAG. Ploeg: 1 (X) = 5-12, 2 (Y) = 13-20, 3 (Z) = 21-4.
+# precies de PRODUCTIEDAG. Ploeg: 1 = 5-12, 2 = 13-20, 3 = 21-4 (letter: zie Get-ShiftLetter).
 # ISO-weeknummer (System.Globalization.ISOWeek bestaat niet in Windows PowerShell 5.1).
 function Get-IsoWeek([datetime]$dt) {
     $dow = [int]$dt.DayOfWeek; if ($dow -eq 0) { $dow = 7 }
     $thu = $dt.AddDays(4 - $dow)
     return [int][Math]::Floor(($thu.DayOfYear - 1) / 7) + 1
+}
+# Ploegletter X/Y/Z. De nacht (21-05) is ALTIJD Z; X en Y wisselen per week:
+#   even week -> X = ochtend (05-13), Y = namiddag (13-21)
+#   oneven week -> Y = ochtend, X = namiddag
+# Het weeknummer is dat van de productieweek (die op zondag start, dus de ISO-week
+# van de maandag erna - zelfde nummering als in de kop van de historie).
+function Get-ShiftLetter([datetime]$prodDate, [int]$shiftNo) {
+    if ($shiftNo -eq 3) { return 'Z' }
+    $weekStart = $prodDate.AddDays(-[int]$prodDate.DayOfWeek)   # zondag
+    $wk = Get-IsoWeek $weekStart.AddDays(1)                     # maandag van die week
+    $evenWeek = (($wk % 2) -eq 0)
+    if ($shiftNo -eq 1) { if ($evenWeek) { return 'X' } else { return 'Y' } }
+    if ($evenWeek) { return 'Y' } else { return 'X' }
 }
 # De tabel is een rollend venster op dagnummer: dagen NA vandaag horen bij de vorige maand.
 # $first = oudste dag die meetelt, $curWeekStart = zondag van de LOPENDE productieweek
@@ -822,7 +847,6 @@ function Build-History($vals, [datetime]$curProdDate, [datetime]$first, [datetim
         }
     }
 
-    $letters = @{ 1 = 'X'; 2 = 'Y'; 3 = 'Z' }
     $ranges  = @{ 1 = '05-13'; 2 = '13-21'; 3 = '21-05' }
     foreach ($key in $agg.Keys) {
         $parts = $key -split '\|'
@@ -847,7 +871,7 @@ function Build-History($vals, [datetime]$curProdDate, [datetime]$first, [datetim
         }
         $wk = [int][Math]::Floor(($curWeekStart - $date.AddDays(-[int]$date.DayOfWeek)).TotalDays / 7)
         $out += [pscustomobject]@{
-            Date = $date; ShiftNo = $pl; Letter = $letters[$pl]; Range = $ranges[$pl]
+            Date = $date; ShiftNo = $pl; Letter = (Get-ShiftLetter $date $pl); Range = $ranges[$pl]
             Total = $tot; Skus = $skus; Target = $pln.Total; PlanPerSku = $pln.PerSku
             WeekIdx = $wk; WeekStart = $date.AddDays(-[int]$date.DayOfWeek)
         }
@@ -868,11 +892,14 @@ function Get-BoxData {
         Ok = $true; Error = $null; Warning = $null
         NowText = $nowDt.ToString('dd/MM/yyyy HH:mm')
         ShiftLabel = "ploeg $($win.Code) ($($win.Label))"; ShiftCode = $win.Code; ShiftRange = $win.Label
+        ShiftLetter = (Get-ShiftLetter $win.Start.Date ([int]$win.Code))
         WindowText = ('{0} -> {1}' -f $win.Start.ToString('dd/MM HH:mm'), $win.End.ToString('dd/MM HH:mm'))
         Sheet = $BoxSheet; BoxFile = ''; FileTimeText = '-'
         TargetSource = 'parameter/config'; TargetMode = 'unknown'; PlanDate = $null; WarnList = @(); PlanFileName = ''; PlanWeek = $null
         PlanPeriod = ''; PlanCovered = $false; PlanSku = $null; ShiftNo = 0
         Rows = @(); Tempo = @{}; Total = 0; ParsedRows = 0; LastText = ''; StartRowSkipped = $false
+        # losse onderdelen van 'laatste doos' - de zin zelf wordt PAS in Render-Html gezet (taal!)
+        LastTimeText = ''; LastProduct = ''; LastCounter = ''
         ShiftStart = $win.Start; ShiftEnd = $win.End; ShiftMin = $shiftMin; Minutes = $minutes; MaxPerMin = 0
         Target = $ShiftTarget; TargetPerMin = $targetPerMin; Pct = 0
         # --- prognose einde ploeg ---
@@ -983,7 +1010,10 @@ function Get-BoxData {
         $d.Total = $tot
         $mx = 0; foreach ($v in $minutes) { if ($v -gt $mx) { $mx = $v } }
         $d.MaxPerMin = $mx
-        if ($lastTs) { $d.LastText = ('{0} - {1} (doos {2})' -f $lastTs.ToString('HH:mm'), $lastProd, $lastCtr) }
+        if ($lastTs) {
+            $d.LastTimeText = $lastTs.ToString('HH:mm'); $d.LastProduct = [string]$lastProd; $d.LastCounter = [string]$lastCtr
+            $d.LastText = ('{0} - {1} (doos {2})' -f $d.LastTimeText, $d.LastProduct, $d.LastCounter)   # nl-terugval
+        }
 
         # ---------------- TARGET UIT HET WEEKPLAN ----------------
         $shiftNo = [int]$win.Code; $prodDate = $win.Start.Date
@@ -1640,7 +1670,9 @@ function Render-Html($d, [string]$lang = 'nl') {
     }
     $langbar += "</div>"
 
-    $shiftLabel = "$(T 'shift_word') $($d.ShiftCode) ($($d.ShiftRange))"
+    # ploegletter (X/Y/Z, wisselt per week) i.p.v. het nummer; let op: $shiftLabel gaat door
+    # HtmlEnc, dus hier GEEN html-entiteiten gebruiken
+    $shiftLabel = "$(T 'shift_word') $($d.ShiftLetter) ($($d.ShiftRange))"
     $meta = "$(HtmlEnc $d.NowText) &middot; $(HtmlEnc $shiftLabel) &middot; $(T 'interval') $(HtmlEnc $d.WindowText)"
     $meta += " &middot; $(HtmlEnc $d.Sheet) &middot; $(HtmlEnc $d.BoxFile)"
 
@@ -1687,6 +1719,11 @@ function Render-Html($d, [string]$lang = 'nl') {
             $bcls = if ($bold) { " strong" } else { "" }
             return "<span class='pw$bcls'><span class='pv $cls'>$(PF $p)&nbsp;%</span><span class='bar'><i class='$cls' style='width:$(SvgN $w)%'></i></span></span>"
         }
+        # 'laatste doos' in de taal van de pagina (staat al html-veilig, dus NIET nog eens encoderen)
+        $lastBoxTxt = if ($d.LastTimeText) {
+            (T 'last_box_txt') -f (HtmlEnc $d.LastTimeText), (HtmlEnc $d.LastProduct), (HtmlEnc $d.LastCounter)
+        } else { HtmlEnc $d.LastText }
+
         $madeRows = @($d.Rows | Where-Object { $_.Count -gt 0 })
         $madeSplit = ""
         if ($madeRows.Count -gt 1) {
@@ -1795,7 +1832,7 @@ function Render-Html($d, [string]$lang = 'nl') {
             $bn = [double]$d.BehindNow
             $bnCls = if ($bn -ge 0) { "done" } else { "behind" }
             $bnTxt = if ($bn -ge 0) { "+$(NF $bn)" } else { (NF $bn) }
-            $nowStillHtml = if ($d.NowStill) { "<div class='err'>$((T 'nowstill') -f (NF $d.StillMin), (HtmlEnc $d.LastText))</div>" } else { "" }
+            $nowStillHtml = if ($d.NowStill) { "<div class='err'>$((T 'nowstill') -f (NF $d.StillMin), $lastBoxTxt)</div>" } else { "" }
             $allStops = @($d.Stops | Sort-Object From)
             $stopTotal = $allStops.Count
             $stopCap = 24
@@ -1854,7 +1891,7 @@ function Render-Html($d, [string]$lang = 'nl') {
                      "<div class='tw'><table class='shift'><thead><tr><th>$(T 'th_producttype')</th><th>$(T 'th_product')</th><th class='num'>$(T 'th_boxes_now')</th><th class='num'>$(T 'th_plan_shift')</th><th class='num'>$(T 'th_todo')</th><th class='num wr'>$(T 'th_expected_end')</th><th>$(T 'th_progress')</th></tr></thead>" +
                      "<tbody>$rows$totalRow</tbody></table></div>"
             $skipTxt  = if ($d.StartRowSkipped) { T 'skip_txt' } else { "" }
-            $lastHtml = if ($d.LastText) { "<div class='wdesc'>$((T 'last_box') -f (HtmlEnc $d.LastText), $d.ParsedRows, $skipTxt)</div>" } else { "" }
+            $lastHtml = if ($d.LastText) { "<div class='wdesc'>$((T 'last_box') -f $lastBoxTxt, $d.ParsedRows, $skipTxt)</div>" } else { "" }
         }
         else {
             $table = "<div class='warn'>$((T 'empty_state') -f $d.ParsedRows, (NF $d.Target), $tsrc)</div>"
@@ -2001,7 +2038,13 @@ function Start-WebServer([int]$port) {
             if (($null -eq $dataCache) -or (([datetime]::Now - $lastCheck).TotalSeconds -ge 15)) {
                 $lastCheck = [datetime]::Now
                 $stamp = Get-BoxFileStamp
-                if (($null -eq $dataCache) -or ($null -ne $stamp -and $stamp -ne $lastStamp)) {
+                # PLOEGWISSEL: 'nu' hoort niet meer bij de ploeg die in de cache zit. Zonder deze
+                # controle bleef om 13:00 de vorige ploeg op het scherm staan zolang het bronbestand
+                # niet wijzigde - en dat gebeurt juist NIET als de lijn stilstaat.
+                $nowRef   = if ($script:HasNow) { $Now } else { Get-Date }
+                $winNow   = Get-ShiftWindow $nowRef
+                $newShift = ($null -ne $dataCache -and $dataCache.ShiftStart -ne $winNow.Start)
+                if (($null -eq $dataCache) -or $newShift -or ($null -ne $stamp -and $stamp -ne $lastStamp)) {
                     $dataCache = Get-BoxData            # DUUR: opent Excel + leest de 4 MB
                     $lastStamp = Get-BoxFileStamp       # stempel van wat we NET gelezen hebben
                 }
