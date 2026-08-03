@@ -39,10 +39,12 @@
     TARGET KOMT UIT HET WEEKPLAN (daily shift NDwk<week>-<jaar>.xls, blad 'daily shift dpp'):
       * Kolom B = SAP-code, kolom C = omschrijving, daarna 3 gedateerde kolommen per dag
         = de taken van ploeg 1 / 2 / 3.
-      * Target van deze ploeg = SOM van het plan van de producten die deze ploeg ECHT
-        gelopen hebben (plan is fabriekbreed, dus filteren op wat de lijn draait).
-      * Nog niets gemaakt -> SKU met het hoogste plan voor deze dag+ploeg, maar alleen
-        uit de producten die in dit Boxruw-blad voorkomen.
+      * Target van deze ploeg = SOM van het plan van ALLE smaken die deze dag+ploeg voor
+        DEZE LIJN gepland staan - dus ook een smaak waarvan de omstelling (nog) niet
+        gekomen is. Het plan is fabriekbreed; de lijnfilter is de lijst producttypes uit
+        het *RCDB-blad (31 dagen) plus wat in het Boxruw-blad staat.
+      * Nog niets gemaakt -> zelfde som; het verwachte product (hoogste plan) wordt erbij
+        vermeld.
       * Dag niet in het plan (oud bestand) of geen plan gevonden -> terugval op
         -ShiftTarget / config, met een waarschuwing. -ShiftTarget expliciet meegeven wint altijd.
 
@@ -206,6 +208,13 @@ $script:I18N = @{
   'th_shift' = "Ploeg"
   'th_boxes' = "Dozen"
   'th_products' = "Producten"
+  'sec_weekplan' = "Weekplan per smaak"
+  'week_bron' = "week {0} &middot; {1} &ndash; {2} &middot; dagplan blijft leidend"
+  'th_plan_week' = "Plan week"
+  'th_made_week' = "Gemaakt"
+  'th_rest_week' = "Restant"
+  'week_note' = "Plan uit het weekplan &middot; lopende ploeg uit {0} &middot; eerdere dagen uit {1} (ontbreken daar uren, dan staat 'gemaakt' te laag)."
+  'warn_weekplan' = "weekplan per smaak niet berekend: {0}"
   'warn_no_rcdb' = "blad {0} niet gevonden - geen historie."
   'warn_hist_read' = "historie niet gelezen: {0}"
   'total' = "Totaal"
@@ -309,6 +318,13 @@ $script:I18N = @{
   'th_shift' = "&Eacute;quipe"
   'th_boxes' = "Bo&icirc;tes"
   'th_products' = "Produits"
+  'sec_weekplan' = "Plan hebdo par saveur"
+  'week_bron' = "semaine {0} &middot; {1} &ndash; {2} &middot; le plan du jour reste prioritaire"
+  'th_plan_week' = "Plan semaine"
+  'th_made_week' = "Réalisé"
+  'th_rest_week' = "Restant"
+  'week_note' = "Plan issu du plan hebdo &middot; équipe en cours depuis {0} &middot; jours précédents depuis {1} (heures manquantes → 'réalisé' sous-évalué)."
+  'warn_weekplan' = "plan hebdo par saveur non calculé : {0}"
   'warn_no_rcdb' = "feuille {0} introuvable &mdash; pas d'historique."
   'warn_hist_read' = "historique non lu : {0}"
   'total' = "Total"
@@ -412,6 +428,13 @@ $script:I18N = @{
   'th_shift' = "Shift"
   'th_boxes' = "Boxes"
   'th_products' = "Products"
+  'sec_weekplan' = "Week plan per flavour"
+  'week_bron' = "week {0} &middot; {1} &ndash; {2} &middot; the daily plan stays leading"
+  'th_plan_week' = "Plan week"
+  'th_made_week' = "Made"
+  'th_rest_week' = "Remaining"
+  'week_note' = "Plan from the week plan &middot; current shift from {0} &middot; earlier days from {1} (missing hours there make 'made' too low)."
+  'warn_weekplan' = "week plan per flavour not calculated: {0}"
   'warn_no_rcdb' = "sheet {0} not found &mdash; no history."
   'warn_hist_read' = "history not read: {0}"
   'total' = "Total"
@@ -515,6 +538,13 @@ $script:I18N = @{
   'th_shift' = "Смена"
   'th_boxes' = "Коробок"
   'th_products' = "Продукты"
+  'sec_weekplan' = "План недели по вкусам"
+  'week_bron' = "неделя {0} &middot; {1} &ndash; {2} &middot; главный план — дневной"
+  'th_plan_week' = "План недели"
+  'th_made_week' = "Сделано"
+  'th_rest_week' = "Осталось"
+  'week_note' = "План — из недельного плана &middot; текущая смена — из {0} &middot; прошлые дни — из {1} (если там нет часов, «сделано» занижено)."
+  'warn_weekplan' = "план недели по вкусам не посчитан: {0}"
   'warn_no_rcdb' = "лист {0} не найден &mdash; истории нет."
   'warn_hist_read' = "история не прочитана: {0}"
   'total' = "Итого"
@@ -785,6 +815,54 @@ function Get-PlanForColumn($vals, [int]$col, $ranSkus, $lineSkus) {
     $t = 0.0; foreach ($k in $per.Keys) { $t += [double]$per[$k] }
     return [pscustomobject]@{ Total = $t; PerSku = $per }
 }
+# Alle producttypes die op DEZE lijn gedraaid hebben volgens het *RCDB-blad (31 dagen).
+# Dit is de filter waarmee het FABRIEKBREDE weekplan wordt teruggebracht tot deze lijn.
+# Bewust ruimer dan het Boxruw-blad (dat reikt maar ~2 dagen terug): een smaak die deze ploeg
+# GEPLAND staat maar nog niet gestart is, moet ook meetellen in de ploegtarget.
+function Get-RcdbSkus($vals) {
+    $set = @{}
+    if ($null -eq $vals) { return $set }
+    $rowMax = $vals.GetUpperBound(0); $colMax = $vals.GetUpperBound(1)
+    for ($b = 1; $b + 4 -le $colMax; $b += 5) {
+        for ($r = 4; $r -le $rowMax; $r++) {
+            $sap = Format-Sap ($vals.GetValue($r, $b + 1))
+            if (-not (Is-Sku $sap)) { continue }
+            $n = $vals.GetValue($r, $b + 4)
+            if ($n -isnot [double] -or $n -le 0) { continue }
+            $set[$sap] = $true
+        }
+    }
+    return $set
+}
+# Weekplan per smaak: som van ALLE ploegen van de productieweek (zondag t/m zaterdag) uit
+# hetzelfde 'daily shift dpp'-rooster. Zelfde lijnfilter als de ploegtarget (plan is fabriekbreed).
+function Get-PlanForWeek($vals, [datetime]$weekStart, $lineSkus) {
+    $per = @{}; $desc = @{}
+    if ($null -ne $vals) {
+        $rowMax = $vals.GetUpperBound(0); $colMax = $vals.GetUpperBound(1)
+        $weekEnd = $weekStart.AddDays(6)
+        $cols = @()
+        for ($c = 4; $c -le $colMax; $c++) {
+            $dt = Convert-Serial ($vals.GetValue(2, $c))
+            if ($null -eq $dt) { continue }
+            if ($dt.Date -ge $weekStart -and $dt.Date -le $weekEnd) { $cols += $c }
+        }
+        if ($cols.Count -gt 0) {
+            for ($r = 3; $r -le $rowMax; $r++) {
+                $sap = Format-Sap ($vals.GetValue($r, 2))
+                if (-not (Is-Sku $sap)) { continue }
+                if (-not ($lineSkus -and $lineSkus.ContainsKey($sap))) { continue }
+                foreach ($c in $cols) {
+                    $v = $vals.GetValue($r, $c)
+                    if ($v -isnot [double] -or $v -le 0) { continue }
+                    if ($per.ContainsKey($sap)) { $per[$sap] += [double]$v } else { $per[$sap] = [double]$v }
+                    if (-not $desc.ContainsKey($sap)) { $desc[$sap] = ([string]($vals.GetValue($r, 3))).Trim() }
+                }
+            }
+        }
+    }
+    return [pscustomobject]@{ PerSku = $per; Desc = $desc }
+}
 # Leest het blad 'L9 datatabel voor 31 dagen': per DAG VAN DE MAAND een blok van 5 kolommen
 # [uur, SAP, doosprint, Machine, aantal]; rij 2 boven het blok = dagnummer, rij 3 = kopjes,
 # data vanaf rij 4. Het blok van dag D bevat de uren 05..23 van D EN 00..04 van D+1 -> dat is
@@ -920,6 +998,8 @@ function Get-BoxData {
         # --- historie per dag/ploeg (uit het RCDB-blad) ---
         HasHistory = $false; History = @(); HistSheet = $script:RcdbSheet
         HistFrom = $null; HistTo = $null; HistWeekStart = $null; HistMaxWeek = 0
+        # --- weekplan per smaak (dagplan blijft leidend; dit is de laag eronder) ---
+        HasWeekPlan = $false; WeekRows = @(); WeekPlanTotal = 0.0; WeekMadeTotal = 0; WeekNo = $null
     }
 
     try { $boxFile = Resolve-BoxFile } catch { $d.Ok = $false; $d.Error = $_.Exception.Message; return [pscustomobject]$d }
@@ -1015,6 +1095,28 @@ function Get-BoxData {
             $d.LastText = ('{0} - {1} (doos {2})' -f $d.LastTimeText, $d.LastProduct, $d.LastCounter)   # nl-terugval
         }
 
+        # ---- producten van DEZE lijn: filter voor het fabriekbrede weekplan ----
+        # Het *RCDB-blad wordt hier AL gelezen (en verderop hergebruikt voor de historie), want
+        # zonder die 31-daagse lijst telt een smaak die deze ploeg gepland staat maar nog NIET
+        # gestart is niet mee in de target: do 30/07 gaf 540 (alleen 340062773, het draaiende
+        # product) i.p.v. 1.157, omdat de omstelling naar 340056956 (617) er niet gekomen was.
+        $histVals = $null
+        $lineProds = @{}
+        foreach ($p in $allProds.Keys) { $lineProds[$p] = $true }
+        $ws2 = $null
+        foreach ($s in $sheets) { if ($s.Name -eq $script:RcdbSheet) { $ws2 = $s; break } }
+        if ($null -eq $ws2) {
+            Add-Warn $d "blad $($script:RcdbSheet) niet gevonden - geen historie." 'warn_no_rcdb' @($script:RcdbSheet)
+        }
+        else {
+            try {
+                $histVals = $ws2.Range("A1:FI300").Value2      # 31 blokken van 5 kolommen = t/m kolom FI
+                foreach ($p in (Get-RcdbSkus $histVals).Keys) { $lineProds[$p] = $true }
+            }
+            catch { Add-Warn $d "historie niet gelezen: $($_.Exception.Message)" 'warn_hist_read' @($_.Exception.Message) }
+            Rel $ws2
+        }
+
         # ---------------- TARGET UIT HET WEEKPLAN ----------------
         $shiftNo = [int]$win.Code; $prodDate = $win.Start.Date
         $d.ShiftNo = $shiftNo
@@ -1030,7 +1132,7 @@ function Get-BoxData {
 
             $pt = $null; $read = 0
             foreach ($c in $cands) {
-                $try = Read-PlanTargets $excel $c.File $prodDate $shiftNo (@($counts.Keys)) $allProds
+                $try = Read-PlanTargets $excel $c.File $prodDate $shiftNo (@($counts.Keys)) $lineProds
                 $read++
                 if ($try.Grid) { $planGrids += ,$try.Grid }   # rooster hergebruiken voor de historie
                 if ($null -eq $pt -or $try.Covered) { $pt = $try }
@@ -1039,7 +1141,7 @@ function Get-BoxData {
             # planbestanden van OUDERE weken (voor de historie-knop '+7 dagen'); alleen als ze bestaan
             if ($HistoryDays -ge 0 -and $cands.Count -gt $read) {
                 foreach ($c in ($cands | Select-Object -Skip $read)) {
-                    $g = Read-PlanTargets $excel $c.File $prodDate $shiftNo (@($counts.Keys)) $allProds
+                    $g = Read-PlanTargets $excel $c.File $prodDate $shiftNo (@($counts.Keys)) $lineProds
                     if ($g.Grid) { $planGrids += ,$g.Grid }
                 }
             }
@@ -1246,32 +1348,78 @@ function Get-BoxData {
         # ---------------- HISTORIE (dozen per dag/ploeg, uit hetzelfde bestand) ----------------
         # Het *RCDB-blad houdt 31 dagen per UUR bij; dat is precies waar SAPSTATus zijn
         # dag/ploeg-raster mee vult (macro dozen4). Zelfde werkmap, dus geen extra Excel-opening.
-        if ($HistoryDays -ge 0) {
-            $ws2 = $null
-            foreach ($s in $sheets) { if ($s.Name -eq $script:RcdbSheet) { $ws2 = $s; break } }
-            if ($null -eq $ws2) {
-                Add-Warn $d "blad $($script:RcdbSheet) niet gevonden - geen historie." 'warn_no_rcdb' @($script:RcdbSheet)
+        if ($HistoryDays -ge 0 -and $null -ne $histVals) {
+            try {
+                # HistoryDays = 0 -> de LOPENDE productieweek, die (net als in SAPSTATus) op
+                # ZONDAG begint; > 0 -> een rollend venster van zoveel dagen.
+                # De tabel bevat 31 dagen, dus lezen we ALLES in een keer en toont de pagina de
+                # oudere weken pas na een klik op '+7 dagen' (geen tweede Excel-lees nodig).
+                $prodDay   = $win.Start.Date
+                $weekStart = $prodDay.AddDays(-[int]$prodDay.DayOfWeek)
+                $histFrom  = if ($HistoryDays -gt 0) { $prodDay.AddDays(-($HistoryDays - 1)) } else { $weekStart }
+                $oldest    = if ($HistoryDays -gt 0) { $histFrom } else { $weekStart.AddDays(-7 * $script:HistExtraWeeks) }
+                $d.HistFrom = $histFrom; $d.HistTo = $prodDay; $d.HistWeekStart = $weekStart
+                $d.History = @(Build-History $histVals $prodDay $oldest $weekStart $planGrids)
+                $d.HasHistory = ($d.History.Count -gt 0)
+                $mw = 0; foreach ($h in $d.History) { if ($h.WeekIdx -gt $mw) { $mw = $h.WeekIdx } }
+                $d.HistMaxWeek = $mw
             }
-            else {
-                try {
-                    # HistoryDays = 0 -> de LOPENDE productieweek, die (net als in SAPSTATus) op
-                    # ZONDAG begint; > 0 -> een rollend venster van zoveel dagen.
-                    # De tabel bevat 31 dagen, dus lezen we ALLES in een keer en toont de pagina de
-                    # oudere weken pas na een klik op '+7 dagen' (geen tweede Excel-lees nodig).
-                    $prodDay   = $win.Start.Date
-                    $weekStart = $prodDay.AddDays(-[int]$prodDay.DayOfWeek)
-                    $histFrom  = if ($HistoryDays -gt 0) { $prodDay.AddDays(-($HistoryDays - 1)) } else { $weekStart }
-                    $oldest    = if ($HistoryDays -gt 0) { $histFrom } else { $weekStart.AddDays(-7 * $script:HistExtraWeeks) }
-                    $d.HistFrom = $histFrom; $d.HistTo = $prodDay; $d.HistWeekStart = $weekStart
-                    $hv = $ws2.Range("A1:FI300").Value2      # 31 blokken van 5 kolommen = t/m kolom FI
-                    $d.History = @(Build-History $hv $prodDay $oldest $weekStart $planGrids)
-                    $d.HasHistory = ($d.History.Count -gt 0)
-                    $mw = 0; foreach ($h in $d.History) { if ($h.WeekIdx -gt $mw) { $mw = $h.WeekIdx } }
-                    $d.HistMaxWeek = $mw
+            catch { Add-Warn $d "historie niet gelezen: $($_.Exception.Message)" 'warn_hist_read' @($_.Exception.Message) }
+        }
+
+        # ---------------- WEEKPLAN PER SMAAK ----------------
+        # Het DAGPLAN uit 'daily shift NDwk*' blijft leidend (dat is de ploegtarget hierboven);
+        # dit is de laag eronder: per smaak het plan van de HELE productieweek en wat er al van
+        # gemaakt is. Verklaart waarom een omstelling soms niet komt: eerst het weekplan van de
+        # lopende smaak op 100% afwerken, desnoods pas in een volgende ploeg.
+        # Bronnen: plan = weekplan; HUIDIGE ploeg = Boxruw-blad (doos per doos, actueelst);
+        # EERDERE dagen = *RCDB-blad. LET OP: in dat blad ontbreken soms uren van een dag
+        # (bron-bug in de Historian-ophaling) - 'gemaakt' staat dan te laag.
+        if ($d.HasHistory -and $planGrids.Count -gt 0 -and $d.HistWeekStart) {
+            try {
+                $wkStart = $d.HistWeekStart
+                $wp = $null
+                foreach ($g in @($planGrids)) {
+                    $cand = Get-PlanForWeek $g $wkStart $lineProds
+                    if ($cand.PerSku.Count -gt 0) { $wp = $cand; break }
                 }
-                catch { Add-Warn $d "historie niet gelezen: $($_.Exception.Message)" 'warn_hist_read' @($_.Exception.Message) }
-                Rel $ws2
+                # gemaakt deze week: eerdere ploegen uit het RCDB-blad ...
+                $made = @{}
+                foreach ($h in $d.History) {
+                    if ($h.WeekIdx -ne 0) { continue }
+                    if ($h.Date -eq $prodDate -and $h.ShiftNo -eq $shiftNo) { continue }   # huidige ploeg: zie hieronder
+                    foreach ($s in $h.Skus) {
+                        if ($made.ContainsKey($s.Sku)) { $made[$s.Sku] += [int]$s.Count } else { $made[$s.Sku] = [int]$s.Count }
+                    }
+                }
+                # ... plus de LOPENDE ploeg uit het Boxruw-blad (fijner en actueler dan het uurraster)
+                foreach ($p in $counts.Keys) {
+                    if (-not (Is-Sku $p)) { continue }
+                    if ($made.ContainsKey($p)) { $made[$p] += [int]$counts[$p] } else { $made[$p] = [int]$counts[$p] }
+                }
+
+                $keys = @{}
+                if ($wp) { foreach ($k in $wp.PerSku.Keys) { $keys[$k] = $true } }
+                foreach ($k in $made.Keys) { $keys[$k] = $true }
+                $wrows = @()
+                foreach ($k in ($keys.Keys | Sort-Object { if ($wp -and $wp.PerSku.ContainsKey($_)) { [double]$wp.PerSku[$_] } else { 0.0 } } -Descending)) {
+                    $pl = 0.0; if ($wp -and $wp.PerSku.ContainsKey($k)) { $pl = [double]$wp.PerSku[$k] }
+                    $mk = 0;   if ($made.ContainsKey($k))               { $mk = [int]$made[$k] }
+                    if ($pl -le 0 -and $mk -le 0) { continue }
+                    $ds = ''
+                    if     ($wp -and $wp.Desc.ContainsKey($k)) { $ds = [string]$wp.Desc[$k] }
+                    elseif ($planDesc.ContainsKey($k))         { $ds = [string]$planDesc[$k] }
+                    $wrows += [pscustomobject]@{ Sku = $k; Desc = $ds; Plan = $pl; Made = $mk; IsCur = ($k -eq $mainProd) }
+                }
+                if ($wrows.Count -gt 0) {
+                    $tp = 0.0; $tm = 0
+                    foreach ($w in $wrows) { $tp += [double]$w.Plan; $tm += [int]$w.Made }
+                    $d.WeekRows = @($wrows); $d.WeekPlanTotal = $tp; $d.WeekMadeTotal = $tm
+                    $d.WeekNo = Get-IsoWeek $wkStart.AddDays(1)      # productieweek start zondag -> maandag bepaalt het ISO-nummer
+                    $d.HasWeekPlan = $true
+                }
             }
+            catch { Add-Warn $d "weekplan per smaak niet berekend: $($_.Exception.Message)" 'warn_weekplan' @($_.Exception.Message) }
         }
     }
     catch { $d.Ok = $false; $d.Error = $_.Exception.Message }
@@ -1882,13 +2030,13 @@ function Render-Html($d, [string]$lang = 'nl') {
                 $planTxt = if ($r.Plan -gt 0) { NF $r.Plan } else { "&mdash;" }
                 $restVal = $r.Plan - $r.Count
                 $restTxt = if ($r.Plan -gt 0) { "<span class='$(if ($restVal -gt 0) { 'behind' } else { 'done' })'>$(NF $restVal)</span>" } else { "&mdash;" }
-                $rows += "<tr class='$cls'><td class='sku'>$(HtmlEnc $r.Product)$mark</td><td>$(HtmlEnc $r.Desc)</td><td class='num'>$(NF $r.Count)</td><td class='num'>$planTxt</td><td class='num'>$restTxt</td><td class='num'>$prog</td><td class='pct'>$(& $Bar ([double]$r.Count) ([double]$r.Plan) $false)</td></tr>"
+                $rows += "<tr class='$cls'><td class='sku'>$(HtmlEnc $r.Product)$mark</td><td class='prd'>$(HtmlEnc $r.Desc)</td><td class='num'>$(NF $r.Count)</td><td class='num'>$planTxt</td><td class='num'>$restTxt</td><td class='num'>$prog</td><td class='pct'>$(& $Bar ([double]$r.Count) ([double]$r.Plan) $false)</td></tr>"
             }
             $totProj = if ($d.HasForecast) { NF $d.ProjTotal } else { "&mdash;" }
             $totRest = $d.Target - $d.Total
             $totalRow = "<tr class='tot'><td colspan='2'>$(T 'total')</td><td class='num'>$(NF $d.Total)</td><td class='num'>$(NF $d.Target)</td><td class='num'>$(NF $totRest)</td><td class='num'>$totProj</td><td class='pct'>$(& $Bar ([double]$d.Total) ([double]$d.Target) $true)</td></tr>"
             $table = "<h2 class='sec'>$(T 'sec_products') <span class='bron'>$((T 'plan_bron') -f $tsrc)</span></h2>" +
-                     "<div class='tw'><table class='shift'><thead><tr><th>$(T 'th_producttype')</th><th>$(T 'th_product')</th><th class='num'>$(T 'th_boxes_now')</th><th class='num'>$(T 'th_plan_shift')</th><th class='num'>$(T 'th_todo')</th><th class='num wr'>$(T 'th_expected_end')</th><th>$(T 'th_progress')</th></tr></thead>" +
+                     "<div class='tw'><table class='shift'><thead><tr><th>$(T 'th_producttype')</th><th class='prd'>$(T 'th_product')</th><th class='num'>$(T 'th_boxes_now')</th><th class='num'>$(T 'th_plan_shift')</th><th class='num'>$(T 'th_todo')</th><th class='num wr'>$(T 'th_expected_end')</th><th>$(T 'th_progress')</th></tr></thead>" +
                      "<tbody>$rows$totalRow</tbody></table></div>"
             $skipTxt  = if ($d.StartRowSkipped) { T 'skip_txt' } else { "" }
             $lastHtml = if ($d.LastText) { "<div class='wdesc'>$((T 'last_box') -f $lastBoxTxt, $d.ParsedRows, $skipTxt)</div>" } else { "" }
@@ -1896,6 +2044,37 @@ function Render-Html($d, [string]$lang = 'nl') {
         else {
             $table = "<div class='warn'>$((T 'empty_state') -f $d.ParsedRows, (NF $d.Target), $tsrc)</div>"
             $lastHtml = ""
+        }
+
+        # ---- weekplan per smaak: waarom een omstelling soms wacht tot het weekplan rond is ----
+        $wkp = ""
+        if ($d.HasWeekPlan) {
+            $cn2 = $script:CultMap[$lang]
+            $cu2 = try { [System.Globalization.CultureInfo]::GetCultureInfo($cn2) } catch { $script:nl }
+            $wRows = ""
+            foreach ($w in $d.WeekRows) {
+                $cls  = if ($w.IsCur) { "cur" } else { "" }
+                $mark = if ($w.IsCur) { " <span class='nu'>$(T 'kind_nowmark')</span>" }
+                        elseif ($w.Made -le 0) { " <span class='soon'>$(T 'kind_notstarted')</span>" }
+                        else { "" }
+                $plTxt = if ($w.Plan -gt 0) { NF $w.Plan } else { "&mdash;" }
+                $rest  = [double]$w.Plan - [double]$w.Made
+                $rTxt  = if ($w.Plan -gt 0) { "<span class='$(if ($rest -gt 0) { 'behind' } else { 'done' })'>$(NF $rest)</span>" } else { "&mdash;" }
+                $wRows += "<tr class='$cls'><td class='sku'>$(HtmlEnc $w.Sku)$mark</td><td class='prd'>$(HtmlEnc $w.Desc)</td>" +
+                          "<td class='num'>$(NF $w.Made)</td><td class='num'>$plTxt</td><td class='num'>$rTxt</td>" +
+                          "<td class='pct'>$(& $Bar ([double]$w.Made) ([double]$w.Plan) $false)</td></tr>"
+            }
+            $wRest = [double]$d.WeekPlanTotal - [double]$d.WeekMadeTotal
+            $wRows += "<tr class='tot'><td colspan='2'>$(T 'total')</td><td class='num'>$(NF $d.WeekMadeTotal)</td>" +
+                      "<td class='num'>$(NF $d.WeekPlanTotal)</td><td class='num'>$(NF $wRest)</td>" +
+                      "<td class='pct'>$(& $Bar ([double]$d.WeekMadeTotal) ([double]$d.WeekPlanTotal) $true)</td></tr>"
+            $wFrom = $d.HistWeekStart.ToString('dd/MM', $cu2)
+            $wTo   = $d.HistWeekStart.AddDays(6).ToString('dd/MM', $cu2)
+            $wkp = "<h2 class='sec'>$(T 'sec_weekplan') <span class='bron'>$((T 'week_bron') -f $d.WeekNo, (HtmlEnc $wFrom), (HtmlEnc $wTo))</span></h2>" +
+                   "<div class='tw'><table class='shift'><thead><tr><th>$(T 'th_producttype')</th><th class='prd'>$(T 'th_product')</th>" +
+                   "<th class='num'>$(T 'th_made_week')</th><th class='num'>$(T 'th_plan_week')</th><th class='num'>$(T 'th_rest_week')</th>" +
+                   "<th>$(T 'th_progress')</th></tr></thead><tbody>$wRows</tbody></table></div>" +
+                   "<div class='wdesc'>$((T 'week_note') -f (HtmlEnc $d.Sheet), (HtmlEnc $d.HistSheet))</div>"
         }
 
         # ---- historie: dag/ploeg-raster uit het RCDB-blad (zelfde bron als SAPSTATus) ----
@@ -1956,7 +2135,7 @@ function Render-Html($d, [string]$lang = 'nl') {
                         "b.addEventListener('click',function(){set((parseInt(w.dataset.shown,10)||0)+1);});})();</script>"
             }
         }
-        $bodyHtml = "$cards$chart$fc$st$table$lastHtml$hist"
+        $bodyHtml = "$cards$chart$fc$st$table$lastHtml$wkp$hist"
     }
 
     $css = "*{box-sizing:border-box}body{margin:0;background:#0f172a;color:#e2e8f0;font-family:Segoe UI,system-ui,Arial,sans-serif}" +
@@ -1971,6 +2150,10 @@ function Render-Html($d, [string]$lang = 'nl') {
            # data-cellen altijd op EEN regel; alleen de lange koptekst mag afbreken (scheelt kolombreedte)
            ".shift th.num{text-align:right}.shift td{white-space:nowrap}" +
            ".shift th{white-space:nowrap}.shift th.wr{white-space:normal}" +
+           # De productomschrijving is de ENIGE cel die mag afbreken; zij vangt de resterende
+           # breedte op zodat de tabel past en er GEEN horizontale schuifbalk komt.
+           ".shift td.prd{white-space:normal;line-height:1.25;word-break:break-word}" +
+           ".shift th.prd{white-space:normal;width:99%}" +
            ".shift td.num,.shift th.num{padding-left:10px;padding-right:10px}" +
            ".shift td.dur{text-align:left;font-variant-numeric:tabular-nums}" +
            ".shift td.sku{font-weight:600}.done{color:#34d399;font-weight:600}.behind{color:#fbbf24;font-weight:600}" +
@@ -2009,7 +2192,25 @@ function Render-Html($d, [string]$lang = 'nl') {
            ".err{background:#3a1212;color:#fca5a5;padding:10px 12px;border-radius:8px;margin:10px 0}" +
            "#stopsWrap .stop-extra{display:none}#stopsWrap.open .stop-extra{display:table-row}" +
            ".showall{margin:10px 0 0;background:#1e293b;border:1px solid #334155;color:#cbd5e1;font-size:13px;padding:7px 14px;border-radius:8px;cursor:pointer}.showall:hover{border-color:#475569;color:#e2e8f0}" +
-           ".foot{color:#64748b;font-size:12px;margin-top:22px}"
+           ".foot{color:#64748b;font-size:12px;margin-top:22px}" +
+           # --- RESPONSIEF: tabellen moeten PASSEN, geen horizontale schuifbalk ---
+           # Staat bewust HELEMAAL achteraan: media-queries verhogen de specificiteit niet, dus
+           # regels als '.hist td{font-size:14px}' zouden ze anders weer overrulen.
+           # Trapsgewijs: padding/letters kleiner -> koppen mogen afbreken -> balkje weg, enkel %.
+           "@media(max-width:1100px){.shift th{font-size:10px;padding:8px 8px}.shift td,.hist td{font-size:15px;padding:10px 8px}" +
+           ".shift td.num,.shift th.num{padding-left:7px;padding-right:7px}.shift td.pct{width:118px}" +
+           ".pw{gap:6px}.pw .pv{min-width:44px;font-size:12px}.pw .bar{min-width:30px}}" +
+           "@media(max-width:800px){.shift th{font-size:9px;padding:7px 5px;white-space:normal}" +
+           ".shift td,.hist td{font-size:13px;padding:8px 5px}.shift td.sku{white-space:normal}.nu,.soon{margin-left:0}" +
+           ".shift td.num,.shift th.num{padding-left:4px;padding-right:4px}.shift td.pct{width:86px}" +
+           ".pw .pv{min-width:36px;font-size:11px}.pw .bar{min-width:16px;height:6px}" +
+           ".hist .hsku{font-size:11px;padding:1px 5px}}" +
+           "@media(max-width:560px){.shift th{font-size:8px;padding:6px 3px;letter-spacing:0}" +
+           ".shift td,.hist td{font-size:11.5px;padding:6px 3px}" +
+           ".shift td.num,.shift th.num{padding-left:3px;padding-right:3px}" +
+           # op een telefoon is het balkje luxe: alleen het percentage, kolom zo smal mogelijk
+           ".shift td.pct{width:1%}.pw .bar{display:none}.pw .pv{min-width:0;font-size:11px}" +
+           ".nu,.soon{font-size:9px;padding:0 4px}.hist .hsku{font-size:10px;padding:0 4px;margin:1px 2px 1px 0}}"
 
     $langScript = "<script>(function(){var p=new URLSearchParams(location.search);var l=p.get('lang');if(l){try{localStorage.setItem('bc_lang',l)}catch(e){}}else{try{var s=localStorage.getItem('bc_lang');if(s&&s!=='$($script:DefaultLang)'){location.replace('/?lang='+s)}}catch(e){}}})();</script>"
 
