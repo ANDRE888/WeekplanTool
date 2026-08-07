@@ -64,7 +64,6 @@ param(
     [string]  $BoxPrintingFile,
     [string]  $BoxSheet,
     [datetime]$Now,
-    [switch]  $Web,             # niet meer nodig (web is de enige modus); blijft voor oude .cmd-starters
     [int]     $Port = 8771,
     [switch]  $NoBrowser,
     [int]     $IntervalSeconds = 60,
@@ -144,11 +143,11 @@ $script:I18N = @{
   'err_prefix' = "FOUT"
   'card_made' = "Geproduceerd (ploeg)"
   'card_made_sub' = "opgeslagen {0}"
-  'card_made_pct' = "{0} % van het plan"
+  'card_made_pct' = "{0}&nbsp;% van het plan"
   'card_target' = "Target ploeg"
-  'card_target_sub' = "{0} % &middot; tempo {1} dozen/min"
+  'card_target_sub' = "{0}&nbsp;% &middot; tempo {1} dozen/min"
   'card_expected_end' = "Verwachte eindstand"
-  'card_expected_end_sub' = "{0} % van target &middot; {1}"
+  'card_expected_end_sub' = "{0}&nbsp;% van target &middot; {1}"
   'card_tempo_now' = "Tempo nu"
   'card_tempo_now_sub' = "dozen/min &middot; {0} per uur"
   'sec_per_minute' = "Dozen per minuut"
@@ -156,10 +155,6 @@ $script:I18N = @{
   'forecast_bron' = "(laatste rij &middot; data t/m {0})"
   'weak_run' = "Korte run ({0} dozen in {1} min) &mdash; prognose is nog voorlopig."
   'card_last_win' = "Laatste {0} min"
-  'card_last_win_sub' = "dozen/min &middot; prognose {0}"
-  'card_needrun' = "Nodig: draaitijd"
-  'card_needrun_sub' = "min zonder stops bij netto {0}/min &middot; nog {1} min ploeg"
-  'card_needrun_short' = "{0} min tekort"
   'card_eta' = "Target bereikt om"
   'card_eta_sub' = "bij huidig tempo"
   'wdesc_run' = "Run van {0}: {1} dozen sinds {2} ({3} min) &middot; nog {4} min tot ploegeinde &middot; verwacht voor dit product {5} dozen"
@@ -178,8 +173,6 @@ $script:I18N = @{
   'card_loss' = "Verlies stilstand"
   'card_loss_sub' = "dozen bij netto tempo"
   'sec_behind' = "Achterstand t.o.v. target-tempo"
-  'card_behind' = "Achterstand nu"
-  'card_behind_sub' = "dozen t.o.v. {0}/min"
   'stops_head_all' = "Stilstand &mdash; alle {0} stops, chronologisch"
   'th_duration' = "Duur"
   'th_kind' = "Soort"
@@ -254,11 +247,11 @@ $script:I18N = @{
   'err_prefix' = "ERREUR"
   'card_made' = "Produit (équipe)"
   'card_made_sub' = "enregistré {0}"
-  'card_made_pct' = "{0} % du plan"
+  'card_made_pct' = "{0}&nbsp;% du plan"
   'card_target' = "Objectif équipe"
-  'card_target_sub' = "{0} % &middot; cadence {1} boîtes/min"
+  'card_target_sub' = "{0}&nbsp;% &middot; cadence {1} boîtes/min"
   'card_expected_end' = "Résultat final prévu"
-  'card_expected_end_sub' = "{0} % de l'objectif &middot; {1}"
+  'card_expected_end_sub' = "{0}&nbsp;% de l'objectif &middot; {1}"
   'card_tempo_now' = "Cadence actuelle"
   'card_tempo_now_sub' = "boîtes/min &middot; {0} par heure"
   'sec_per_minute' = "Boîtes par minute"
@@ -266,10 +259,6 @@ $script:I18N = @{
   'forecast_bron' = "(dernière ligne &middot; données jusqu'à {0})"
   'weak_run' = "Série courte ({0} boîtes en {1} min) &mdash; prévision encore provisoire."
   'card_last_win' = "Dernières {0} min"
-  'card_last_win_sub' = "boîtes/min &middot; prévision {0}"
-  'card_needrun' = "Requis : temps de marche"
-  'card_needrun_sub' = "min sans arrêt à cadence nette {0}/min &middot; encore {1} min"
-  'card_needrun_short' = "{0} min manquantes"
   'card_eta' = "Objectif atteint à"
   'card_eta_sub' = "à la cadence actuelle"
   'wdesc_run' = "Série de {0} : {1} boîtes depuis {2} ({3} min) &middot; encore {4} min avant la fin d'équipe &middot; prévu pour ce produit {5} boîtes"
@@ -288,8 +277,6 @@ $script:I18N = @{
   'card_loss' = "Perte (arrêts)"
   'card_loss_sub' = "boîtes à cadence nette"
   'sec_behind' = "Retard p/r à la cadence cible"
-  'card_behind' = "Retard actuel"
-  'card_behind_sub' = "boîtes p/r à {0}/min"
   'stops_head_all' = "Arrêts &mdash; les {0} arrêts, chronologique"
   'th_duration' = "Durée"
   'th_kind' = "Type"
@@ -364,11 +351,11 @@ $script:I18N = @{
   'err_prefix' = "ERROR"
   'card_made' = "Produced (shift)"
   'card_made_sub' = "saved {0}"
-  'card_made_pct' = "{0} % of plan"
+  'card_made_pct' = "{0}&nbsp;% of plan"
   'card_target' = "Target (shift)"
-  'card_target_sub' = "{0} % &middot; rate {1} boxes/min"
+  'card_target_sub' = "{0}&nbsp;% &middot; rate {1} boxes/min"
   'card_expected_end' = "Expected final total"
-  'card_expected_end_sub' = "{0} % of target &middot; {1}"
+  'card_expected_end_sub' = "{0}&nbsp;% of target &middot; {1}"
   'card_tempo_now' = "Current rate"
   'card_tempo_now_sub' = "boxes/min &middot; {0} per hour"
   'sec_per_minute' = "Boxes per minute"
@@ -376,10 +363,6 @@ $script:I18N = @{
   'forecast_bron' = "(last row &middot; data through {0})"
   'weak_run' = "Short run ({0} boxes in {1} min) &mdash; forecast still provisional."
   'card_last_win' = "Last {0} min"
-  'card_last_win_sub' = "boxes/min &middot; forecast {0}"
-  'card_needrun' = "Needed: run time"
-  'card_needrun_sub' = "min without stops at net {0}/min &middot; {1} min left"
-  'card_needrun_short' = "{0} min short"
   'card_eta' = "Target reached at"
   'card_eta_sub' = "at current rate"
   'wdesc_run' = "Run of {0}: {1} boxes since {2} ({3} min) &middot; {4} min to end of shift &middot; expected for this product {5} boxes"
@@ -398,8 +381,6 @@ $script:I18N = @{
   'card_loss' = "Downtime loss"
   'card_loss_sub' = "boxes at net rate"
   'sec_behind' = "Behind vs target rate"
-  'card_behind' = "Behind now"
-  'card_behind_sub' = "boxes vs {0}/min"
   'stops_head_all' = "Downtime &mdash; all {0} stops, chronological"
   'th_duration' = "Duration"
   'th_kind' = "Kind"
@@ -474,11 +455,11 @@ $script:I18N = @{
   'err_prefix' = "ОШИБКА"
   'card_made' = "Произведено (смена)"
   'card_made_sub' = "сохранено {0}"
-  'card_made_pct' = "{0} % от плана"
+  'card_made_pct' = "{0}&nbsp;% от плана"
   'card_target' = "Цель (смена)"
-  'card_target_sub' = "{0} % &middot; темп {1} коробок/мин"
+  'card_target_sub' = "{0}&nbsp;% &middot; темп {1} коробок/мин"
   'card_expected_end' = "Ожидаемый итог"
-  'card_expected_end_sub' = "{0} % от цели &middot; {1}"
+  'card_expected_end_sub' = "{0}&nbsp;% от цели &middot; {1}"
   'card_tempo_now' = "Текущий темп"
   'card_tempo_now_sub' = "коробок/мин &middot; {0} в час"
   'sec_per_minute' = "Коробок в минуту"
@@ -486,10 +467,6 @@ $script:I18N = @{
   'forecast_bron' = "(последняя строка &middot; данные до {0})"
   'weak_run' = "Короткий прогон ({0} коробок за {1} мин) &mdash; прогноз пока предварительный."
   'card_last_win' = "Последние {0} мин"
-  'card_last_win_sub' = "коробок/мин &middot; прогноз {0}"
-  'card_needrun' = "Нужно чистого хода"
-  'card_needrun_sub' = "мин без стопов при нетто {0}/мин &middot; до конца смены {1} мин"
-  'card_needrun_short' = "не хватает {0} мин"
   'card_eta' = "Цель достигнута в"
   'card_eta_sub' = "при текущем темпе"
   'wdesc_run' = "Прогон {0}: {1} коробок с {2} ({3} мин) &middot; ещё {4} мин до конца смены &middot; ожидается по этому продукту {5} коробок"
@@ -508,8 +485,6 @@ $script:I18N = @{
   'card_loss' = "Потери простоя"
   'card_loss_sub' = "коробок при чистом темпе"
   'sec_behind' = "Отставание от целевого темпа"
-  'card_behind' = "Отставание сейчас"
-  'card_behind_sub' = "коробок относит. {0}/мин"
   'stops_head_all' = "Простой &mdash; все {0} остановок, по времени"
   'th_duration' = "Длит."
   'th_kind' = "Тип"
@@ -590,11 +565,11 @@ function Get-ReqLang([string]$req) {
 }
 # ===========================================================================
 
-# waarschuwingen stapelen in plaats van overschrijven
-function Add-Warn($d, [string]$msg, [string]$key = $null, $vals = @()) {
-    if ([string]::IsNullOrWhiteSpace($msg)) { return }
-    if ([string]::IsNullOrWhiteSpace($d.Warning)) { $d.Warning = $msg } else { $d.Warning = "$($d.Warning) | $msg" }
-    if ($key) { $d.WarnList += [pscustomobject]@{ Key = $key; Vals = @($vals) } }
+# Waarschuwingen stapelen in plaats van overschrijven. De TEKST komt pas in Render-Html uit de
+# taaltabel (sleutel + waarden), zodat elke taal zijn eigen zin krijgt.
+function Add-Warn($d, [string]$key, $vals = @()) {
+    if ([string]::IsNullOrWhiteSpace($key)) { return }
+    $d.WarnList += [pscustomobject]@{ Key = $key; Vals = @($vals) }
 }
 
 function Read-ConfigFile([string]$path) {
@@ -967,14 +942,14 @@ function Get-BoxData {
     $targetPerMin = if ($ShiftTarget -gt 0) { [double]$ShiftTarget / $shiftMin } else { 0 }
 
     $d = [ordered]@{
-        Ok = $true; Error = $null; Warning = $null
+        Ok = $true; Error = $null
         NowText = $nowDt.ToString('dd/MM/yyyy HH:mm')
-        ShiftLabel = "ploeg $($win.Code) ($($win.Label))"; ShiftCode = $win.Code; ShiftRange = $win.Label
+        ShiftRange = $win.Label
         ShiftLetter = (Get-ShiftLetter $win.Start.Date ([int]$win.Code))
         WindowText = ('{0} -> {1}' -f $win.Start.ToString('dd/MM HH:mm'), $win.End.ToString('dd/MM HH:mm'))
         Sheet = $BoxSheet; BoxFile = ''; FileTimeText = '-'
-        TargetSource = 'parameter/config'; TargetMode = 'unknown'; PlanDate = $null; WarnList = @(); PlanFileName = ''; PlanWeek = $null
-        PlanPeriod = ''; PlanCovered = $false; PlanSku = $null; ShiftNo = 0
+        TargetMode = 'unknown'; PlanDate = $null; WarnList = @(); PlanFileName = ''; PlanWeek = $null
+        PlanSku = $null; ShiftNo = 0
         Rows = @(); Tempo = @{}; Total = 0; ParsedRows = 0; LastText = ''; StartRowSkipped = $false
         # losse onderdelen van 'laatste doos' - de zin zelf wordt PAS in Render-Html gezet (taal!)
         LastTimeText = ''; LastProduct = ''; LastCounter = ''
@@ -982,14 +957,13 @@ function Get-BoxData {
         Target = $ShiftTarget; TargetPerMin = $targetPerMin; Pct = 0
         # --- prognose einde ploeg ---
         HasForecast = $false; FcWeak = $false
-        MainProduct = $null; MainCount = 0        # hoofdproduct = producttype van de LAATSTE rij
+        MainProduct = $null                       # hoofdproduct = producttype van de LAATSTE rij
         RunCount = 0; RunStartText = ''           # huidige aaneengesloten run van dat product
         RefNowText = '-'; ElapsedMin = 0; RemainMin = 0; NowOffsetMin = 0
         PerMin = 0; PerHour = 0
         RecentWin = 0; RecentCount = 0; HasRecent = $false; RecentPerMin = 0; ProjRecent = 0
         ProjTotal = 0; ProjMain = 0; ProjPct = 0; ProjDiff = 0
-        NeedPerMin = 0; EtaText = ''; EtaKind = ''; EtaTimeText = ''; EtaAfterShift = $false
-        HasNeedRun = $false; NeedRunMin = 0; NeedRunNet = 0; NeedRunShort = 0
+        EtaText = ''; EtaKind = ''; EtaTimeText = ''; EtaAfterShift = $false
         # --- stilstand + achterstand ---
         HasStops = $false; Stops = @(); StopCount = 0; StopMin = 0
         LongestMin = 0; LongestText = ''; NowStill = $false; StillMin = 0
@@ -1034,7 +1008,7 @@ function Get-BoxData {
         $lastRow  = [int]$lastCell.Row
         Rel $lastCell; Rel $anchor; Rel $allCells
 
-        if ($lastRow -lt 11) { Add-Warn $d "Geen data vanaf rij 11 in $BoxSheet." 'warn_no_data_row11' @($BoxSheet); return [pscustomobject]$d }
+        if ($lastRow -lt 11) { Add-Warn $d 'warn_no_data_row11' @($BoxSheet); return [pscustomobject]$d }
 
         # A=tijd, B=etiket, C=lijn ; alles in EEN marshaling-call (leest cache, geen herberekening)
         $rng  = $ws.Range("A11:C$lastRow").Value2
@@ -1106,14 +1080,14 @@ function Get-BoxData {
         $ws2 = $null
         foreach ($s in $sheets) { if ($s.Name -eq $script:RcdbSheet) { $ws2 = $s; break } }
         if ($null -eq $ws2) {
-            Add-Warn $d "blad $($script:RcdbSheet) niet gevonden - geen historie." 'warn_no_rcdb' @($script:RcdbSheet)
+            Add-Warn $d 'warn_no_rcdb' @($script:RcdbSheet)
         }
         else {
             try {
                 $histVals = $ws2.Range("A1:FI300").Value2      # 31 blokken van 5 kolommen = t/m kolom FI
                 foreach ($p in (Get-RcdbSkus $histVals).Keys) { $lineProds[$p] = $true }
             }
-            catch { Add-Warn $d "historie niet gelezen: $($_.Exception.Message)" 'warn_hist_read' @($_.Exception.Message) }
+            catch { Add-Warn $d 'warn_hist_read' @($_.Exception.Message) }
             Rel $ws2
         }
 
@@ -1126,7 +1100,7 @@ function Get-BoxData {
             $cands = @()
             if ($script:HasPlanFile) {
                 if (Test-Path -LiteralPath $PlanFile) { $cands = @([pscustomobject]@{ File = (Resolve-Path -LiteralPath $PlanFile).Path }) }
-                else { Add-Warn $d "opgegeven planbestand niet gevonden: $PlanFile" 'warn_planfile_missing' @($PlanFile) }
+                else { Add-Warn $d 'warn_planfile_missing' @($PlanFile) }
             }
             else { $cands = @(Get-PlanCandidates $script:PlanFolder | Select-Object -First 3) }
 
@@ -1146,32 +1120,27 @@ function Get-BoxData {
                 }
             }
             if ($null -eq $pt) {
-                if ($cands.Count -eq 0) { Add-Warn $d "geen planbestand (daily shift NDwk*.xls) in $($script:PlanFolder) - target uit config." 'warn_no_planfile' @($script:PlanFolder) }
+                if ($cands.Count -eq 0) { Add-Warn $d 'warn_no_planfile' @($script:PlanFolder) }
             }
-            elseif ($pt.Error)   { Add-Warn $d "weekplan niet gelezen: $($pt.Error)" 'warn_plan_read' @($pt.Error) }
+            elseif ($pt.Error)   { Add-Warn $d 'warn_plan_read' @($pt.Error) }
             else {
-                $d.PlanFileName = $pt.File; $d.PlanWeek = $pt.WeekNo; $d.PlanPeriod = $pt.Period; $d.PlanCovered = $pt.Covered
+                $d.PlanFileName = $pt.File; $d.PlanWeek = $pt.WeekNo
                 if (-not $pt.Covered) {
-                    Add-Warn $d ("productiedag {0} (ploeg {1}) staat niet in {2} (week {3}, {4}) - target uit config." -f $prodDate.ToString('dd/MM'), $shiftNo, $pt.File, $pt.WeekNo, $pt.Period) 'warn_day_not_in_plan' @($prodDate.ToString('dd/MM'), $shiftNo, $pt.File, $pt.WeekNo, $pt.Period)
+                    Add-Warn $d 'warn_day_not_in_plan' @($prodDate.ToString('dd/MM'), $shiftNo, $pt.File, $pt.WeekNo, $pt.Period)
                 }
                 elseif ($pt.Total -le 0) {
-                    Add-Warn $d ("geen plan voor deze dag/ploeg in {0} - target uit config." -f $pt.File) 'warn_no_plan_dayshift' @($pt.File)
+                    Add-Warn $d 'warn_no_plan_dayshift' @($pt.File)
                 }
                 else {
                     $effTarget  = [double]$pt.Total
                     $planPerSku = $pt.PerSku; $planDesc = $pt.Desc; $d.PlanSku = $pt.FallbackSku
-                    $d.TargetSource = if ($pt.FallbackSku) {
-                        "plan $($pt.File) - nog niets gemaakt, verwacht $($pt.FallbackSku)"
-                    } else {
-                        "plan $($pt.File) (week $($pt.WeekNo)), $($prodDate.ToString('ddd dd/MM', $script:nl)) ploeg $shiftNo"
-                    }
                     $d.TargetMode = if ($pt.FallbackSku) { 'planfallback' } else { 'plan' }
                     $d.PlanDate = $prodDate
                 }
             }
         }
-        elseif ($script:HasTarget) { $d.TargetSource = 'parameter -ShiftTarget'; $d.TargetMode = 'param' }
-        elseif ($NoPlan)           { $d.TargetSource = 'config (-NoPlan)'; $d.TargetMode = 'noplan' }
+        elseif ($script:HasTarget) { $d.TargetMode = 'param' }
+        elseif ($NoPlan)           { $d.TargetMode = 'noplan' }
 
         $d.Target = $effTarget
         $targetPerMin = if ($effTarget -gt 0) { $effTarget / $shiftMin } else { 0 }
@@ -1285,7 +1254,6 @@ function Get-BoxData {
                 $perMin = $runCount / $elapsed
                 $d.HasForecast  = $true
                 $d.FcWeak       = ($elapsed -lt 5 -or $runCount -lt 5)   # te korte run -> voorlopig cijfer
-                $d.MainCount    = $mainCount
                 $d.RunCount     = $runCount
                 $d.RunStartText = $runStart.ToString('HH:mm')
                 $d.RefNowText   = $refNow.ToString('dd/MM HH:mm')
@@ -1320,18 +1288,6 @@ function Get-BoxData {
                     if ($todo -le 0)      { $d.EtaText = 'target al gehaald'; $d.EtaKind = 'done' }
                     elseif ($remain -le 0){ $d.EtaText = 'ploeg voorbij'; $d.EtaKind = 'over' }
                     else {
-                        $d.NeedPerMin = $todo / $remain
-                        # Benodigde ZUIVERE DRAAITIJD voor de rest, op het netto tempo (= tempo als
-                        # de lijn echt loopt). Een 'nodig tempo' van 8 dozen/min zegt niets als de
-                        # lijn er maximaal 2,5 haalt; '65 min non-stop draaien terwijl er nog 20 min
-                        # ploeg is' zegt wel meteen hoeveel tijd er tekort komt.
-                        $netRate = if ($d.NetPerMin -gt 0) { [double]$d.NetPerMin } else { $perMin }
-                        if ($netRate -gt 0) {
-                            $d.NeedRunMin = $todo / $netRate
-                            $d.NeedRunNet = $netRate
-                            $d.NeedRunShort = [Math]::Max(0.0, ($todo / $netRate) - $remain)
-                            $d.HasNeedRun = $true
-                        }
                         if ($perMin -gt 0) {
                             $eta = $refNow.AddMinutes($todo / $perMin)
                             $d.EtaTimeText = $eta.ToString('HH:mm')
@@ -1364,7 +1320,7 @@ function Get-BoxData {
                 $mw = 0; foreach ($h in $d.History) { if ($h.WeekIdx -gt $mw) { $mw = $h.WeekIdx } }
                 $d.HistMaxWeek = $mw
             }
-            catch { Add-Warn $d "historie niet gelezen: $($_.Exception.Message)" 'warn_hist_read' @($_.Exception.Message) }
+            catch { Add-Warn $d 'warn_hist_read' @($_.Exception.Message) }
         }
 
         # ---------------- WEEKPLAN PER SMAAK ----------------
@@ -1419,7 +1375,7 @@ function Get-BoxData {
                     $d.HasWeekPlan = $true
                 }
             }
-            catch { Add-Warn $d "weekplan per smaak niet berekend: $($_.Exception.Message)" 'warn_weekplan' @($_.Exception.Message) }
+            catch { Add-Warn $d 'warn_weekplan' @($_.Exception.Message) }
         }
     }
     catch { $d.Ok = $false; $d.Error = $_.Exception.Message }
@@ -1910,9 +1866,8 @@ function Render-Html($d, [string]$lang = 'nl') {
         }
         # tempo per producttype: dozen van dat type / minuten dat dat type liep (omstellen telt niet mee)
         $tempoRows = @($madeRows | Where-Object { $d.Tempo.ContainsKey($_.Product) })
-        $tempoSplit = ""
+        $tempoSplitRows = ""
         if ($tempoRows.Count -gt 1) {
-            $tempoSplit = "<div class='split'>"
             foreach ($r in $tempoRows) {
                 $t = $d.Tempo[$r.Product]
                 $mark = if ($r.IsMain) { " <span class='nu'>$(T 'kind_nowmark')</span>" } else { "" }
@@ -1921,17 +1876,39 @@ function Render-Html($d, [string]$lang = 'nl') {
                 $val = if ($t.HasRate) {
                     "<b>$(PF2 $t.PerMin)</b><span class='ph'>$(NF ($t.PerMin * 60))$(T 'per_hour_short')</span>"
                 } else { "<b>&mdash;</b>" }
-                $tempoSplit += "<div title='$(HtmlEnc $ttl)'><span class='sk'>$(HtmlEnc $r.Product)$mark</span><span class='tv'>$val</span></div>"
+                $tempoSplitRows += "<div title='$(HtmlEnc $ttl)'><span class='sk'>$(HtmlEnc $r.Product)$mark</span><span class='tv'>$val</span></div>"
             }
-            $tempoSplit += "</div>"
         }
+        # tempo van de laatste -RecentMinutes minuten hoort bij 'Tempo nu' (de grote waarde = hele ploeg)
+        if ($d.HasRecent) {
+            $recTtl = (T 'tt_tempo') -f (NF $d.RecentCount), (NF $d.RecentWin)
+            $tempoSplitRows += "<div title='$(HtmlEnc $recTtl)'><span class='sk'>$((T 'card_last_win') -f (NF $d.RecentWin))</span>" +
+                               "<span class='tv'><b>$(PF2 $d.RecentPerMin)</b><span class='ph'>$(NF ($d.RecentPerMin * 60))$(T 'per_hour_short')</span></span></div>"
+        }
+        $tempoSplit = if ($tempoSplitRows) { "<div class='split'>$tempoSplitRows</div>" } else { "" }
         $cards = "<div class='cards'>" +
             "<div class='card'><div class='lbl'>$(T 'card_made')</div><div class='val done'>$(NF $d.Total)$madePct</div>$madeSplit<div class='sub'>$((T 'card_made_sub') -f (HtmlEnc $d.FileTimeText))</div></div>" +
             "<div class='card'><div class='lbl'>$(T 'card_target')</div><div class='val'>$(NF $d.Target)</div>$tgtSplit<div class='sub'>$((T 'card_target_sub') -f $pct, (PF2 $d.TargetPerMin))<br><span class='bron'>$tsrc</span></div></div>"
         if ($d.HasForecast) {
             $projCls = if ($d.ProjDiff -ge 0) { "done" } else { "behind" }
             $diffTxt = if ($d.ProjDiff -ge 0) { "+$(NF $d.ProjDiff)" } else { (NF $d.ProjDiff) }
-            $cards += "<div class='card hi'><div class='lbl'>$(T 'card_expected_end')</div><div class='val $projCls'>$(NF $d.ProjTotal)</div>" +
+            # ETA ("target bereikt om") hoort bij de verwachte eindstand -> als regel in dezelfde kaart
+            $etaSplit = ""
+            if ($d.EtaText) {
+                # Een enkele regel LINKS uitgelijnd (geen label-links/waarde-rechts: met maar een
+                # waarde oogt dat scheef). Tijd = vet, '(na ploegeinde)' = kleine grijze noot.
+                # Bij een tekstuitkomst vervalt het label - 'Target bereikt om target al gehaald'
+                # zou onzin zijn - en kleurt de uitkomst zelf.
+                $etaTxt = switch ($d.EtaKind) {
+                    'done'       { "<span class='done'>$(T 'eta_done')</span>" }
+                    'over'       { "<b>$(T 'eta_over')</b>" }
+                    'impossible' { "<span class='behind'>$(T 'eta_impossible')</span>" }
+                    'time'       { "$(T 'card_eta') <b>$(HtmlEnc $d.EtaTimeText)</b>$(if ($d.EtaAfterShift) { "<span class='ph'>$((T 'eta_after').Trim())</span>" } else { '' })" }
+                    default      { "<b>$(HtmlEnc $d.EtaText)</b>" }
+                }
+                $etaSplit = "<div class='eta' title='$(HtmlEnc (T 'card_eta_sub'))'>$etaTxt</div>"
+            }
+            $cards += "<div class='card hi'><div class='lbl'>$(T 'card_expected_end')</div><div class='val $projCls'>$(NF $d.ProjTotal)</div>$etaSplit" +
                       "<div class='sub'>$((T 'card_expected_end_sub') -f (PF $d.ProjPct), $diffTxt)</div></div>" +
                       "<div class='card'><div class='lbl'>$(T 'card_tempo_now')</div><div class='val'>$(PF2 $d.PerMin)</div>$tempoSplit<div class='sub'>$((T 'card_tempo_now_sub') -f (NF $d.PerHour))</div></div>"
         }
@@ -1941,45 +1918,17 @@ function Render-Html($d, [string]$lang = 'nl') {
         $fc = ""
         if ($d.HasForecast) {
             $weak = if ($d.FcWeak) { "<div class='warn'>$((T 'weak_run') -f (NF $d.RunCount), (NF $d.ElapsedMin))</div>" } else { "" }
-            $recHtml = ""
-            if ($d.HasRecent) {
-                $recHtml = "<div class='card'><div class='lbl'>$((T 'card_last_win') -f (NF $d.RecentWin))</div><div class='val'>$(PF2 $d.RecentPerMin)</div>" +
-                           "<div class='sub'>$((T 'card_last_win_sub') -f (NF $d.ProjRecent))</div></div>"
-            }
-            $needHtml = ""
-            if ($d.HasNeedRun) {
-                $needCls   = if ($d.NeedRunShort -gt 0) { "behind" } else { "done" }
-                $shortHtml = if ($d.NeedRunShort -gt 0) {
-                    "<br><span class='behind'>$((T 'card_needrun_short') -f (NF ([Math]::Round($d.NeedRunShort))))</span>"
-                } else { "" }
-                $needHtml = "<div class='card'><div class='lbl'>$(T 'card_needrun')</div><div class='val $needCls'>$(NF ([Math]::Round($d.NeedRunMin)))</div>" +
-                            "<div class='sub'>$((T 'card_needrun_sub') -f (PF2 $d.NeedRunNet), (NF $d.RemainMin))$shortHtml</div></div>"
-            }
-            $etaHtml = ""
-            if ($d.EtaText) {
-                $etaTxt = switch ($d.EtaKind) {
-                    'done'       { T 'eta_done' }
-                    'over'       { T 'eta_over' }
-                    'impossible' { T 'eta_impossible' }
-                    'time'       { "$(HtmlEnc $d.EtaTimeText)$(if ($d.EtaAfterShift) { T 'eta_after' } else { '' })" }
-                    default      { HtmlEnc $d.EtaText }
-                }
-                $etaHtml = "<div class='card'><div class='lbl'>$(T 'card_eta')</div><div class='val small'>$etaTxt</div><div class='sub'>$(T 'card_eta_sub')</div></div>"
-            }
             $fc = "<h2 class='sec'>$((T 'sec_forecast') -f (HtmlEnc $d.MainProduct))" +
                   "<span class='bron'>$((T 'forecast_bron') -f (HtmlEnc $d.RefNowText))</span></h2>$weak" +
                   "<div class='chart'>$(New-ForecastChartSvg $d)</div>" +
-                  "<div class='cards'>$recHtml$needHtml$etaHtml</div>" +
                   "<div class='wdesc'>$((T 'wdesc_run') -f (HtmlEnc $d.MainProduct), (NF $d.RunCount), (HtmlEnc $d.RunStartText), (NF $d.ElapsedMin), (NF $d.RemainMin), (NF $d.ProjMain))</div>"
         }
 
         $st = ""
+        $bh = ""
         if ($d.HasStops) {
             $stillCls = if ($d.StopMin -gt 0) { "behind" } else { "done" }
             $availCls = if ($d.AvailPct -ge 95) { "done" } else { "behind" }
-            $bn = [double]$d.BehindNow
-            $bnCls = if ($bn -ge 0) { "done" } else { "behind" }
-            $bnTxt = if ($bn -ge 0) { "+$(NF $bn)" } else { (NF $bn) }
             $nowStillHtml = if ($d.NowStill) { "<div class='err'>$((T 'nowstill') -f (NF $d.StillMin), $lastBoxTxt)</div>" } else { "" }
             $allStops = @($d.Stops | Sort-Object From)
             $stopTotal = $allStops.Count
@@ -2000,11 +1949,9 @@ function Render-Html($d, [string]$lang = 'nl') {
                   "<div class='card'><div class='lbl'>$(T 'card_runtime')</div><div class='val $availCls'>$(PF $d.AvailPct)</div><div class='sub'>$((T 'card_runtime_sub') -f (NF $d.RunMin), (NF $d.ElapsedShiftMin))</div></div>" +
                   "<div class='card'><div class='lbl'>$(T 'card_net')</div><div class='val'>$(PF2 $d.NetPerMin)</div><div class='sub'>$(T 'card_net_sub')</div></div>" +
                   "<div class='card'><div class='lbl'>$(T 'card_loss')</div><div class='val behind'>$(NF $d.LostBoxes)</div><div class='sub'>$(T 'card_loss_sub')</div></div>" +
-                  "</div>" +
-                  "<h2 class='sec'>$(T 'sec_behind')</h2>" +
-                  "<div class='chart'>$(New-BehindChartSvg $d)</div>" +
-                  "<div class='cards'><div class='card hi'><div class='lbl'>$(T 'card_behind')</div><div class='val $bnCls'>$bnTxt</div>" +
-                  "<div class='sub'>$((T 'card_behind_sub') -f (PF2 $d.TargetPerMin))</div></div></div>"
+                  "</div>"
+            # achterstand-grafiek staat hoger op de pagina: direct na de prognose einde ploeg
+            $bh = "<h2 class='sec'>$(T 'sec_behind')</h2><div class='chart'>$(New-BehindChartSvg $d)</div>"
             if ($stopRows) {
                 $tbl = "<div class='tw'><table class='shift'><thead><tr><th>$stopHead</th><th>$(T 'th_duration')</th><th>$(T 'th_kind')</th></tr></thead><tbody>$stopRows</tbody></table></div>"
                 if ($stopTotal -gt $stopCap) {
@@ -2135,7 +2082,7 @@ function Render-Html($d, [string]$lang = 'nl') {
                         "b.addEventListener('click',function(){set((parseInt(w.dataset.shown,10)||0)+1);});})();</script>"
             }
         }
-        $bodyHtml = "$cards$chart$fc$st$table$lastHtml$wkp$hist"
+        $bodyHtml = "$cards$chart$fc$bh$st$table$lastHtml$wkp$hist"
     }
 
     $css = "*{box-sizing:border-box}body{margin:0;background:#0f172a;color:#e2e8f0;font-family:Segoe UI,system-ui,Arial,sans-serif}" +
@@ -2162,18 +2109,31 @@ function Render-Html($d, [string]$lang = 'nl') {
            ".tot td{font-weight:700;border-top:2px solid #475569;color:#cbd5e1}" +
            ".bron{color:#94a3b8;font-weight:400;font-size:13px;text-transform:none;letter-spacing:0}" +
            ".wdesc{color:#94a3b8;font-size:13px;margin-top:10px}.cards{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px}" +
-           ".card{flex:1;min-width:200px;background:#1e293b;border-radius:10px;padding:14px 16px}" +
+           # Kaarten: kolom-flex zodat de grijze 'sub'-regel van ALLE kaarten op dezelfde hoogte
+           # (onderaan) staat; niets mag buiten de kaart vallen -> lange woorden mogen breken.
+           ".card{flex:1;min-width:min(200px,100%);background:#1e293b;border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;overflow-wrap:break-word}" +
            ".card.hi{outline:1px solid #334155;background:#172033}" +
-           ".card .lbl{font-size:11px;color:#94a3b8;text-transform:uppercase}.card .val{font-size:34px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums}" +
-           ".card .val.small{font-size:26px}.card .sub{font-size:13px;color:#94a3b8;margin-top:2px}" +
+           ".card .lbl{font-size:11px;color:#94a3b8;text-transform:uppercase}" +
+           # het grote getal + het percentage ernaast: flex met wrap, anders steekt het percentage
+           # bij smalle kaarten buiten de rand
+           ".card .val{font-size:34px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums;display:flex;flex-wrap:wrap;align-items:baseline;gap:0 9px;line-height:1.12}" +
+           ".card .sub{font-size:13px;color:#94a3b8;margin-top:auto;padding-top:6px}" +
            ".card .split{margin-top:8px;display:flex;flex-direction:column;gap:3px}" +
-           ".card .split>div{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:13px;line-height:1.5;font-variant-numeric:tabular-nums}" +
-           ".card .split .sk{color:#94a3b8}.card .split b{font-weight:600;color:#e2e8f0}" +
-           ".card .val .vpct{font-size:13px;font-weight:600;margin-left:9px;vertical-align:middle;white-space:nowrap}" +
+           # label links, waarde rechts; past het niet naast elkaar, dan zakt de waarde netjes
+           # naar de volgende regel (rechts uitgelijnd) i.p.v. de kaart uit te rekken
+           ".card .split>div{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:0 12px;font-size:13px;line-height:1.5;font-variant-numeric:tabular-nums}" +
+           ".card .split>div>:last-child{margin-left:auto;text-align:right}" +
+           ".card .split .sk{color:#94a3b8;min-width:0}.card .split b{font-weight:600;color:#e2e8f0}" +
+           ".card .val .vpct{font-size:13px;font-weight:600;white-space:normal}" +
            ".card .split .pcs{font-size:12px;margin-left:6px}" +
            ".card .pcl.g{color:#22c55e}.card .pcl.a{color:#fbbf24}.card .pcl.r{color:#ef4444}" +
            ".soon{background:#334155;color:#cbd5e1;font-size:11px;padding:1px 7px;border-radius:8px;margin-left:4px;vertical-align:middle}" +
            ".card .split .tv{white-space:nowrap}.card .split .ph{color:#94a3b8;font-size:12px;margin-left:5px}" +
+           # losse regel onder het grote getal (bv. 'Target bereikt om 21:19'): gewoon links
+           # uitgelijnd meelopende tekst, breekt netjes af als de kaart smal is
+           ".card .eta{margin-top:8px;font-size:13px;color:#94a3b8;line-height:1.5}" +
+           ".card .eta b{color:#e2e8f0;font-weight:600;font-variant-numeric:tabular-nums}" +
+           ".card .eta .ph{color:#94a3b8;font-size:12px;margin-left:4px}" +
            # uitvoering-kolom: cijfer BOVEN de balk (smalle kolom, anders wordt de tabel te breed)
            ".tw{overflow-x:auto}.shift td.pct{width:138px}.pw{display:flex;align-items:center;gap:8px}" +
            ".pw .pv{font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap;min-width:50px;text-align:right}" +
