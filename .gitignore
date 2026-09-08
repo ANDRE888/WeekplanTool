@@ -1,6 +1,21 @@
 # Игнорировать всё, кроме файлов инструмента
 *
 !.gitignore
+!README.md
+
+# --- дашборд: ОДИН скрипт на обе линии (9 и 11), переключение прямо на странице ---
+!Test-BoxCount-Lines.ps1
+!Test-BoxCount-Lines-Web.cmd
+!Test-BoxCount-Lines-Web-Test.cmd
+
+# --- конфигурация: у КАЖДОЙ линии своя; все читает Test-BoxCount-Lines.ps1 ---
 !config.txt
-!Test-BoxCount.ps1
-!Test-BoxCount-Web.cmd
+!config-L5.txt
+!config-L6.txt
+!config-L8.txt
+!config-L11.txt
+
+# --- archive/ = прежние раздельные скрипты линий 9 и 11 (до слияния).
+#     Правило '*' выше их уже игнорирует; строка ниже нужна, чтобы это было
+#     видно намеренным, а не случайным. Индексировать архив не нужно. ---
+archive/
