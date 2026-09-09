@@ -20,9 +20,10 @@
         OPGETELD, precies zoals SAPSTATus het doet (de som klopt 1:1 met blad 'W <week>').
         Motor: Get-BoxData11 / weergave Render-Html11.
 
-    CONFIGURATIE: elke lijn houdt zijn eigen bestand naast dit script - config.txt voor
-    lijn 9 en config-L11.txt voor lijn 11. Beide worden bij het starten gelezen. Wat op de
-    opdrachtregel staat wint altijd en geldt voor BEIDE lijnen (ze lezen hetzelfde bronbestand).
+    CONFIGURATIE: EEN bestand voor alle lijnen - config.txt naast dit script. Bovenaan het
+    algemene blok (bronbestand, planmap, standaardinstellingen); daaronder mag per lijn een blok
+    '[5]' ... '[11]' staan dat alleen zijn eigen lijn overschrijft. Wat op de opdrachtregel staat
+    wint altijd en geldt voor ALLE lijnen (ze lezen immers hetzelfde bronbestand).
 
     CACHE: per lijn apart en pas bij het eerste bezoek gevuld - een lijn die niemand opent
     kost dus ook geen Excel-lees. Wijzigt het bronbestand (of begint een nieuwe ploeg), dan
@@ -66,7 +67,7 @@ $nl = [System.Globalization.CultureInfo]::GetCultureInfo('nl-BE')
 
 # ============================ CONFIG ============================
 $here = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
-$ConfigFile = Join-Path $here "config-L11.txt"   # EIGEN config - config.txt blijft van lijn 9
+$ConfigFile = Join-Path $here "config.txt"       # EEN configuratiebestand voor ALLE lijnen
 $script:HasNow    = $PSBoundParameters.ContainsKey('Now')
 $script:HasBox    = -not [string]::IsNullOrWhiteSpace($BoxPrintingFile)
 $script:HasBoxSheet  = -not [string]::IsNullOrWhiteSpace($BoxSheet)
@@ -695,21 +696,46 @@ function Add-Warn($d, [string]$key, $vals = @()) {
     $d.WarnList += [pscustomobject]@{ Key = $key; Vals = @($vals) }
 }
 
+# Leest HET ENE configuratiebestand (config.txt). Formaat: 'sleutel = waarde', '#' = commentaar,
+# en een regel '[6]' opent het blok van EEN lijn. Alles VOOR het eerste blok geldt voor ALLE
+# lijnen; een sleutel binnen '[6]' overschrijft dat algemene blok, maar alleen voor lijn 6.
+# Een kop zonder cijfer ('[algemeen]', '[общее]') keert terug naar het algemene blok.
+# Resultaat: @{ '' = <algemeen>; '6' = <blok lijn 6>; ... } - de lege sleutel is het algemene blok.
 function Read-ConfigFile([string]$path) {
-    $cfg = @{}
+    $all = @{ '' = @{} }
+    $sec = ''
     if (Test-Path -LiteralPath $path) {
         foreach ($line in (Get-Content -LiteralPath $path)) {
             $t = $line.Trim()
             if ($t -eq '' -or $t.StartsWith('#')) { continue }
+            if ($t.StartsWith('[') -and $t.EndsWith(']')) {
+                # '[6]', '[lijn 6]', '[линия 6]' -> '6'
+                $m = [regex]::Match($t, '\d+')
+                $sec = if ($m.Success) { $m.Value } else { '' }
+                if (-not $all.ContainsKey($sec)) { $all[$sec] = @{} }
+                continue
+            }
             $i = $t.IndexOf('=')
             if ($i -gt 0) {
                 $k = $t.Substring(0, $i).Trim()
                 $v = $t.Substring($i + 1).Trim().Trim('"').Trim("'")
-                if ($k) { $cfg[$k] = $v }
+                if ($k) { $all[$sec][$k] = $v }
             }
         }
     }
-    return $cfg
+    return $all
+}
+
+# Waarde van EEN sleutel voor EEN lijn: eerst het eigen blok van de lijn, dan het algemene blok.
+# Niets gevonden (of leeg) -> $null, zodat de aanroeper zijn eigen standaard kan houden.
+function Get-CfgVal($all, [string]$id, [string]$key) {
+    foreach ($s in @($id, '')) {
+        if ($all.ContainsKey($s) -and $all[$s].ContainsKey($key)) {
+            $v = $all[$s][$key]
+            if (-not [string]::IsNullOrWhiteSpace($v)) { return $v }
+        }
+    }
+    return $null
 }
 
 # Producttype = waarde van tag 14 in de etiket-string (tussen |14| en de volgende |)
@@ -810,13 +836,87 @@ function Get-PlanCandidates([string]$folder) {
     return @($list | Sort-Object Year, Week, Modified -Descending)
 }
 
+# ---------- LIJNFILTER UIT HET PLAN: blad 'Line Schedule Data' ----------
+# Het weekplan op 'daily shift dpp' is FABRIEKBREED. Om er de target van EEN lijn uit te halen
+# moet je weten welke smaak op welke lijn hoort - en dat staat in hetzelfde bestand, op blad
+# 'Line Schedule Data': per planregel een Platform_ID (5 = BAKED, 6 = Extruder, 7 = Fryer,
+# 4 = Multipak, 10 = Doritos 2) met begin- en eindtijd. Dat is exact en tijdgebonden, terwijl
+# de oude filter (alle smaken die de lijn in 31 dagen draaide) te ruim is zodra twee lijnen
+# hetzelfde assortiment delen.
+# Resultaat: lijst van regels @{ Platform; Sku; Start; End } - of een lege lijst als het blad
+# ontbreekt (oudere planbestanden), waarna alles terugvalt op de oude filter.
+function Read-LineSchedule($sheets) {
+    $out = @()
+    $ws = $null
+    foreach ($s in $sheets) { if ($s.Name -eq 'Line Schedule Data') { $ws = $s; break } }
+    if ($null -eq $ws) { return $out }
+    try {
+        # kop zoeken (kolomnamen staan in rij 1) en daarna alleen de vier kolommen lezen die
+        # we nodig hebben; het blad is ~1.000 regels breed 64 kolommen, alles inlezen is zonde.
+        $hdr = $ws.Range("A1:BL1").Value2
+        $colPlat = 0; $colStart = 0; $colEnd = 0; $colSku = 0
+        $cMax = $hdr.GetUpperBound(1)
+        for ($c = 1; $c -le $cMax; $c++) {
+            switch (([string]($hdr.GetValue(1, $c))).Trim()) {
+                'Platform_ID'     { $colPlat  = $c }
+                'Start_Timestamp' { $colStart = $c }
+                'End_Timestamp'   { $colEnd   = $c }
+                'Product_Code'    { $colSku   = $c }
+            }
+        }
+        if ($colPlat -eq 0 -or $colStart -eq 0 -or $colEnd -eq 0 -or $colSku -eq 0) { return $out }
+        $last = [int]($ws.UsedRange.Rows.Count)
+        if ($last -lt 2) { return $out }
+        if ($last -gt 20000) { $last = 20000 }
+        $lo = [Math]::Min([Math]::Min($colPlat, $colStart), [Math]::Min($colEnd, $colSku))
+        $hi = [Math]::Max([Math]::Max($colPlat, $colStart), [Math]::Max($colEnd, $colSku))
+        $vals = $ws.Range($ws.Cells(2, $lo), $ws.Cells($last, $hi)).Value2
+        $rMax = $vals.GetUpperBound(0)
+        for ($r = 1; $r -le $rMax; $r++) {
+            $sap = Format-Sap ($vals.GetValue($r, $colSku - $lo + 1))
+            if (-not (Is-Sku $sap)) { continue }
+            $p  = $vals.GetValue($r, $colPlat  - $lo + 1)
+            $st = $vals.GetValue($r, $colStart - $lo + 1)
+            $en = $vals.GetValue($r, $colEnd   - $lo + 1)
+            if ($p -isnot [double] -or $st -isnot [double] -or $en -isnot [double]) { continue }
+            $out += [pscustomobject]@{
+                Platform = [int]$p; Sku = $sap
+                Start = [DateTime]::FromOADate($st); End = [DateTime]::FromOADate($en)
+            }
+        }
+    }
+    catch { }
+    finally { Rel $ws }
+    return $out
+}
+
+# Smaken die op EEN platform gepland staan in het venster [$from, $to) - de regels mogen er
+# gedeeltelijk overheen lopen (een run loopt vaak over de ploeggrens heen).
+function Get-PlatformSkus($sched, $platform, [datetime]$from, [datetime]$to) {
+    $set = @{}
+    if ($null -eq $sched -or $null -eq $platform) { return $set }
+    foreach ($row in @($sched)) {
+        if ($row.Platform -ne [int]$platform) { continue }
+        if ($row.End -le $from -or $row.Start -ge $to) { continue }
+        $set[$row.Sku] = $true
+    }
+    return $set
+}
+
+# Venster van een productiedag + ploeg (05-13 / 13-21 / 21-05, dag begint 05:00).
+function Get-ShiftBounds([datetime]$prodDate, [int]$shiftNo) {
+    $st = $prodDate.Date.AddHours(5 + 8 * ($shiftNo - 1))
+    return @($st, $st.AddHours(8))
+}
+
 # Leest het plan voor productiedag + ploeg. $skus = producten die deze ploeg draaiden,
-# $lineSkus = alle producten die in dit Boxruw-blad voorkomen (filter, plan is fabriekbreed).
+# $lineSkus = terugvalfilter (alle producten van de lijn uit de 31-daagse *RCDB-tabel); als
+# het blad 'Line Schedule Data' er is EN de lijn een Platform heeft, wint die exacte filter.
 function Read-PlanTargets($excel, [string]$planPath, [datetime]$prodDate, [int]$shiftNo, $skus, $lineSkus) {
     $res = [ordered]@{
         Ok = $false; File = (Split-Path $planPath -Leaf); WeekNo = $null; Period = ''
         Covered = $false; Total = 0.0; PerSku = @{}; Desc = @{}; FallbackSku = $null; Error = $null
-        Grid = $null; SkuNames = @{}
+        Grid = $null; SkuNames = @{}; Sched = @(); PlatformUsed = $false
     }
     $wb = $null; $ws = $null; $sheets = $null
     try {
@@ -856,6 +956,14 @@ function Read-PlanTargets($excel, [string]$planPath, [datetime]$prodDate, [int]$
             }
         }
 
+        # exacte lijnfilter uit hetzelfde bestand (zie Read-LineSchedule hierboven)
+        $res.Sched = @(Read-LineSchedule $sheets)
+        if ($res.Sched.Count -gt 0 -and $null -ne $script:Platform) {
+            $b = Get-ShiftBounds $prodDate $shiftNo
+            $exact = Get-PlatformSkus $res.Sched $script:Platform $b[0] $b[1]
+            if ($exact.Count -gt 0) { $lineSkus = $exact; $res.PlatformUsed = $true }
+        }
+
         $vals   = $ws.Range("A1:AD400").Value2
         $rowMax = $vals.GetUpperBound(0); $colMax = $vals.GetUpperBound(1)
         # ruwe planroostercache: de historie hergebruikt hem (scheelt heropenen). METEEN zetten,
@@ -892,9 +1000,14 @@ function Read-PlanTargets($excel, [string]$planPath, [datetime]$prodDate, [int]$
             if (-not (Is-Sku $sap)) { continue }
             # telt mee voor deze ploeg: al gedraaid OF gepland voor een product dat op DEZE lijn loopt
             # (het plan is fabriekbreed, vandaar de filter op $lineSkus)
-            $mine = $want.ContainsKey($sap)
-            $onLine = $mine -or ($lineSkus -and $lineSkus.ContainsKey($sap))
-            if ($onLine -and -not $res.Desc.ContainsKey($sap)) {
+            $mine   = $want.ContainsKey($sap)
+            $onPlan = ($lineSkus -and $lineSkus.ContainsKey($sap))
+            # MET de exacte platformfilter telt alleen wat op DEZE lijn gepland staat. Anders
+            # sleept een handvol dozen van een naburige lijn (omstelling, restje na een wissel)
+            # het VOLLEDIGE dagplan van die smaak mee: di 08/09 gaf 97 dozen 340018067 op lijn 6
+            # en daarmee 936 target die in werkelijkheid op lijn 5 hoorde.
+            $onLine = if ($res.PlatformUsed) { $onPlan } else { $mine -or $onPlan }
+            if (($mine -or $onLine) -and -not $res.Desc.ContainsKey($sap)) {
                 $res.Desc[$sap] = ([string]($vals.GetValue($r, 3))).Trim()
             }
             $v = $vals.GetValue($r, $col)
@@ -902,7 +1015,7 @@ function Read-PlanTargets($excel, [string]$planPath, [datetime]$prodDate, [int]$
             # dezelfde SAP-code kan meerdere planregels hebben -> optellen.
             # Een smaak die deze ploeg nog NIET gestart is telt ook mee (anders groeit de target
             # pas als de omstelling gebeurd is); daarvoor moet er wel echt iets gepland staan.
-            if ($mine -or ($onLine -and $v -gt 0)) {
+            if (($mine -and -not $res.PlatformUsed) -or ($onLine -and $v -gt 0)) {
                 if ($res.PerSku.ContainsKey($sap)) { $res.PerSku[$sap] += [double]$v } else { $res.PerSku[$sap] = [double]$v }
             }
             if ($lineSkus -and $lineSkus.ContainsKey($sap) -and $v -gt $bestVal) { $bestVal = [double]$v; $best = $sap }
@@ -940,15 +1053,18 @@ function Find-PlanColumn($vals, [datetime]$prodDate, [int]$shiftNo) {
     return 0
 }
 # Plan uit die kolom, gefilterd op producten van DEZE lijn (het plan is fabriekbreed).
-function Get-PlanForColumn($vals, [int]$col, $ranSkus, $lineSkus) {
+# $strict = de filter komt uit 'Line Schedule Data' en is exact; dan telt UITSLUITEND wat op
+# deze lijn gepland stond, ook al zijn er losse dozen van een andere lijn gedraaid.
+function Get-PlanForColumn($vals, [int]$col, $ranSkus, $lineSkus, [bool]$strict = $false) {
     $per = @{}
     if ($null -ne $vals -and $col -gt 0) {
         $rowMax = $vals.GetUpperBound(0)
         for ($r = 3; $r -le $rowMax; $r++) {
             $sap = Format-Sap ($vals.GetValue($r, 2))
             if (-not (Is-Sku $sap)) { continue }
-            $mine = $ranSkus.ContainsKey($sap)
-            if (-not ($mine -or ($lineSkus -and $lineSkus.ContainsKey($sap)))) { continue }
+            $onPlan = ($lineSkus -and $lineSkus.ContainsKey($sap))
+            $mine   = if ($strict) { $onPlan -and $ranSkus.ContainsKey($sap) } else { $ranSkus.ContainsKey($sap) }
+            if (-not ($mine -or $onPlan)) { continue }
             $v = $vals.GetValue($r, $col)
             if ($v -isnot [double]) { continue }
             if (-not $mine -and $v -le 0) { continue }
@@ -1035,7 +1151,7 @@ function Get-ShiftLetter([datetime]$prodDate, [int]$shiftNo) {
 # planroosters; voor oudere weken zit het plan in een ANDER 'daily shift NDwk*'-bestand.
 # LIJN 11: $valsList is een LIJST roosters (L11P1RCDB + L11P2RCDB). Ze worden opgeteld -
 # precies zoals SAPSTATus doet (de som klopt 1:1 met het dag/ploeg-raster op blad 'W <week>').
-function Build-History($valsList, [datetime]$curProdDate, [datetime]$first, [datetime]$curWeekStart, $planGrids) {
+function Build-History($valsList, [datetime]$curProdDate, [datetime]$first, [datetime]$curWeekStart, $planGrids, $planScheds) {
     $out = @()
     $grids = @($valsList | Where-Object { $null -ne $_ })
     if ($grids.Count -eq 0) { return $out }
@@ -1089,11 +1205,22 @@ function Build-History($valsList, [datetime]$curProdDate, [datetime]$first, [dat
         }
         if ($skus.Count -eq 0) { continue }
         $ran = @{}; foreach ($s in $skus) { $ran[$s.Sku] = $true }
-        # plan uit het rooster dat DEZE datum bevat (oudere weken = ander planbestand)
+        # plan uit het rooster dat DEZE datum bevat (oudere weken = ander planbestand).
+        # De lijnfilter komt bij voorkeur uit 'Line Schedule Data' van HETZELFDE bestand
+        # (exact en per ploeg), anders uit de 31-daagse *RCDB-lijst hierboven.
         $pln = [pscustomobject]@{ Total = 0.0; PerSku = @{} }
-        foreach ($g in @($planGrids)) {
-            $col = Find-PlanColumn $g $date $pl
-            if ($col -gt 0) { $pln = Get-PlanForColumn $g $col $ran $lineSkus; break }
+        $gl = @($planGrids); $sl = @($planScheds)
+        for ($gi = 0; $gi -lt $gl.Count; $gi++) {
+            $col = Find-PlanColumn $gl[$gi] $date $pl
+            if ($col -le 0) { continue }
+            $flt = $lineSkus; $strict = $false
+            if ($null -ne $script:Platform -and $gi -lt $sl.Count) {
+                $b  = Get-ShiftBounds $date $pl
+                $ex = Get-PlatformSkus $sl[$gi] $script:Platform $b[0] $b[1]
+                if ($ex.Count -gt 0) { $flt = $ex; $strict = $true }
+            }
+            $pln = Get-PlanForColumn $gl[$gi] $col $ran $flt $strict
+            break
         }
         $wk = [int][Math]::Floor(($curWeekStart - $date.AddDays(-[int]$date.DayOfWeek)).TotalDays / 7)
         $out += [pscustomobject]@{
@@ -1114,21 +1241,26 @@ function Build-History($valsList, [datetime]$curProdDate, [datetime]$first, [dat
 #   RcdbSheets = blad(en) met de 31-daagse uurtabel (lijn 11 ook twee; ze worden OPGETELD)
 #   Engine     = 'single'   -> lijn 9: een verpakkingsmachine, hoofdproduct = laatste rij
 #                'machines' -> lijn 11: acht machines naast elkaar, elk een eigen smaak
-#   Config     = eigen configuratiebestand, zodat bestaande instellingen blijven werken
+#   Platform   = Platform_ID van deze lijn op blad 'Line Schedule Data' in het planbestand.
+#                Daarmee wordt het FABRIEKBREDE weekplan teruggebracht tot deze lijn. Zonder
+#                die sleutel valt het terug op de oude filter (alle smaken die de lijn in 31
+#                dagen draaide) - en die is te ruim zodra twee lijnen hetzelfde assortiment
+#                delen: lijn 5 (BAKED) en lijn 6 (Extruder) draaien allebei Oven Baked, en
+#                daardoor kreeg lijn 6 het plan van lijn 5 erbij (target 12.865 i.p.v. 4.387).
 $script:LineOrder = @('5','6','8','9','11')
 $script:LineDefs  = @{
     '5'  = @{ Id = '5';  BoxSheets = @('Boxruw5');                RcdbSheets = @('L5RCDB');
-              Engine = 'machines'; Config = 'config-L5.txt' }
+              Engine = 'machines'; Platform = 5 }     # BAKED
     '6'  = @{ Id = '6';  BoxSheets = @('Boxruw6');                RcdbSheets = @('L6RCDB');
-              Engine = 'machines'; Config = 'config-L6.txt' }
+              Engine = 'machines'; Platform = 6 }     # Extruder
     '8'  = @{ Id = '8';  BoxSheets = @('Boxruw8');                RcdbSheets = @('L8RCDB');
-              Engine = 'machines'; Config = 'config-L8.txt' }
+              Engine = 'machines'; Platform = 7 }     # Fryer
     '9'  = @{ Id = '9';  BoxSheets = @('Boxruw9');                RcdbSheets = @('L9RCDB');
-              Engine = 'single';   Config = 'config.txt' }
+              Engine = 'single';   Platform = 4 }     # Multipak
     '11' = @{ Id = '11'; BoxSheets = @('Boxruw111','Boxruw112');  RcdbSheets = @('L11P1RCDB','L11P2RCDB');
-              Engine = 'machines'; Config = 'config-L11.txt' }
+              Engine = 'machines'; Platform = 10 }    # Doritos 2
 }
-# Een lijn toevoegen = EEN regel hierboven + een configuratiebestand ernaast. Verder niets:
+# Een lijn toevoegen = EEN regel hierboven. Een eigen blok in config.txt mag, maar hoeft niet:
 # de motor 'machines' leest het aantal machines uit tag 8 van de etiketten zelf (Get-Machine),
 # de kop van de pagina komt uit de sleutel 'h1_machines' met het lijnnummer erin, en de knop
 # in de lijnbalk uit 'line_word'. Nergens staat een vast machinenummer of een vast aantal.
@@ -1146,6 +1278,7 @@ function Set-LineContext([string]$id) {
     if ($null -eq $c) { return }
     $script:BoxSheets  = @($c.BoxSheets)
     $script:RcdbSheets = @($c.RcdbSheets)
+    $script:Platform   = $script:LineDefs[$id].Platform
     $script:RcdbSheet  = ($c.RcdbSheets -join ',')
     Set-Variable -Scope Script -Name BoxSheet      -Value ($c.BoxSheets -join ',')
     Set-Variable -Scope Script -Name RcdbSheet     -Value ($c.RcdbSheets -join ',')
@@ -1344,7 +1477,7 @@ function Get-BoxData9 {
         $shiftNo = [int]$win.Code; $prodDate = $win.Start.Date
         $d.ShiftNo = $shiftNo
         $effTarget = [double]$ShiftTarget
-        $planPerSku = @{}; $planDesc = @{}; $planGrids = @()
+        $planPerSku = @{}; $planDesc = @{}; $planGrids = @(); $planScheds = @()
         if (-not $NoPlan -and -not $script:HasTarget) {
             $cands = @()
             if ($script:HasPlanFile) {
@@ -1357,7 +1490,7 @@ function Get-BoxData9 {
             foreach ($c in $cands) {
                 $try = Read-PlanTargets $excel $c.File $prodDate $shiftNo (@($counts.Keys)) $lineProds
                 $read++
-                if ($try.Grid) { $planGrids += ,$try.Grid }   # rooster hergebruiken voor de historie
+                if ($try.Grid) { $planGrids += ,$try.Grid; $planScheds += ,$try.Sched }   # hergebruik voor de historie
                 if ($null -eq $pt -or $try.Covered) { $pt = $try }
                 if ($try.Covered) { break }
             }
@@ -1365,7 +1498,7 @@ function Get-BoxData9 {
             if ($HistoryDays -ge 0 -and $cands.Count -gt $read) {
                 foreach ($c in ($cands | Select-Object -Skip $read)) {
                     $g = Read-PlanTargets $excel $c.File $prodDate $shiftNo (@($counts.Keys)) $lineProds
-                    if ($g.Grid) { $planGrids += ,$g.Grid }
+                    if ($g.Grid) { $planGrids += ,$g.Grid; $planScheds += ,$g.Sched }
                 }
             }
             if ($null -eq $pt) {
@@ -1568,7 +1701,7 @@ function Get-BoxData9 {
                 $d.HistFrom = $histFrom; $d.HistTo = $prodDay; $d.HistWeekStart = $weekStart
                 # roosterlijst zoals lijn 11: de komma houdt het 2D-rooster EEN element
                 $histGrids = @(); if ($null -ne $histVals) { $histGrids += ,$histVals }
-                $d.History = @(Build-History $histGrids $prodDay $oldest $weekStart $planGrids)
+                $d.History = @(Build-History $histGrids $prodDay $oldest $weekStart $planGrids $planScheds)
                 $d.HasHistory = ($d.History.Count -gt 0)
                 $mw = 0; foreach ($h in $d.History) { if ($h.WeekIdx -gt $mw) { $mw = $h.WeekIdx } }
                 $d.HistMaxWeek = $mw
@@ -1588,8 +1721,16 @@ function Get-BoxData9 {
             try {
                 $wkStart = $d.HistWeekStart
                 $wp = $null
-                foreach ($g in @($planGrids)) {
-                    $cand = Get-PlanForWeek $g $wkStart $lineProds
+                $gl = @($planGrids); $sl = @($planScheds)
+                for ($gi = 0; $gi -lt $gl.Count; $gi++) {
+                    # lijnfilter voor de HELE week: alles wat op dit platform gepland staat
+                    # van zondag 05:00 tot de zondag erop (zie Read-LineSchedule)
+                    $flt = $lineProds
+                    if ($null -ne $script:Platform -and $gi -lt $sl.Count) {
+                        $ex = Get-PlatformSkus $sl[$gi] $script:Platform $wkStart.Date.AddHours(5) $wkStart.Date.AddDays(7).AddHours(5)
+                        if ($ex.Count -gt 0) { $flt = $ex }
+                    }
+                    $cand = Get-PlanForWeek $gl[$gi] $wkStart $flt
                     if ($cand.PerSku.Count -gt 0) { $wp = $cand; break }
                 }
                 # gemaakt deze week: eerdere ploegen uit het RCDB-blad ...
@@ -1865,7 +2006,7 @@ function Get-BoxData11 {
         $shiftNo = [int]$win.Code; $prodDate = $win.Start.Date
         $d.ShiftNo = $shiftNo
         $effTarget = [double]$ShiftTarget
-        $planPerSku = @{}; $planDesc = @{}; $planGrids = @(); $skuNames = @{}
+        $planPerSku = @{}; $planDesc = @{}; $planGrids = @(); $planScheds = @(); $skuNames = @{}
         if (-not $NoPlan -and -not $script:HasTarget) {
             $cands = @()
             if ($script:HasPlanFile) {
@@ -1879,7 +2020,7 @@ function Get-BoxData11 {
                 $try = Read-PlanTargets $excel $c.File $prodDate $shiftNo (@($counts.Keys)) $lineProds
                 foreach ($kn in $try.SkuNames.Keys) { if (-not $skuNames.ContainsKey($kn)) { $skuNames[$kn] = $try.SkuNames[$kn] } }
                 $read++
-                if ($try.Grid) { $planGrids += ,$try.Grid }   # rooster hergebruiken voor de historie
+                if ($try.Grid) { $planGrids += ,$try.Grid; $planScheds += ,$try.Sched }   # hergebruik voor de historie
                 if ($null -eq $pt -or $try.Covered) { $pt = $try }
                 if ($try.Covered) { break }
             }
@@ -1888,7 +2029,7 @@ function Get-BoxData11 {
                 foreach ($c in ($cands | Select-Object -Skip $read)) {
                     $g = Read-PlanTargets $excel $c.File $prodDate $shiftNo (@($counts.Keys)) $lineProds
                     foreach ($kn in $g.SkuNames.Keys) { if (-not $skuNames.ContainsKey($kn)) { $skuNames[$kn] = $g.SkuNames[$kn] } }
-                    if ($g.Grid) { $planGrids += ,$g.Grid }
+                    if ($g.Grid) { $planGrids += ,$g.Grid; $planScheds += ,$g.Sched }
                 }
             }
             if ($null -eq $pt) {
@@ -2221,7 +2362,7 @@ function Get-BoxData11 {
                 $histFrom  = if ($HistoryDays -gt 0) { $prodDay.AddDays(-($HistoryDays - 1)) } else { $weekStart }
                 $oldest    = if ($HistoryDays -gt 0) { $histFrom } else { $weekStart.AddDays(-7 * $script:HistExtraWeeks) }
                 $d.HistFrom = $histFrom; $d.HistTo = $prodDay; $d.HistWeekStart = $weekStart
-                $d.History = @(Build-History $histGrids $prodDay $oldest $weekStart $planGrids)
+                $d.History = @(Build-History $histGrids $prodDay $oldest $weekStart $planGrids $planScheds)
                 $d.HasHistory = ($d.History.Count -gt 0)
                 $mw = 0; foreach ($h in $d.History) { if ($h.WeekIdx -gt $mw) { $mw = $h.WeekIdx } }
                 $d.HistMaxWeek = $mw
@@ -2245,8 +2386,16 @@ function Get-BoxData11 {
             try {
                 $wkStart = $d.HistWeekStart
                 $wp = $null
-                foreach ($g in @($planGrids)) {
-                    $cand = Get-PlanForWeek $g $wkStart $lineProds
+                $gl = @($planGrids); $sl = @($planScheds)
+                for ($gi = 0; $gi -lt $gl.Count; $gi++) {
+                    # lijnfilter voor de HELE week: alles wat op dit platform gepland staat
+                    # van zondag 05:00 tot de zondag erop (zie Read-LineSchedule)
+                    $flt = $lineProds
+                    if ($null -ne $script:Platform -and $gi -lt $sl.Count) {
+                        $ex = Get-PlatformSkus $sl[$gi] $script:Platform $wkStart.Date.AddHours(5) $wkStart.Date.AddDays(7).AddHours(5)
+                        if ($ex.Count -gt 0) { $flt = $ex }
+                    }
+                    $cand = Get-PlanForWeek $gl[$gi] $wkStart $flt
                     if ($cand.PerSku.Count -gt 0) { $wp = $cand; break }
                 }
                 # gemaakt deze week: eerdere ploegen uit het RCDB-blad ...
@@ -3711,50 +3860,59 @@ function Start-WebServer([int]$port) {
     finally { $listener.Stop() }
 }
 
-# ==================== configuratie laden: EEN keer per lijn ====================
-# Elke lijn houdt zijn eigen configuratiebestand (config.txt / config-L11.txt), zodat
-# bestaande instellingen blijven werken. Wat op de opdrachtregel is meegegeven wint altijd
-# en geldt voor BEIDE lijnen (ze lezen immers hetzelfde bronbestand).
+# ==================== configuratie laden: EEN bestand, alle lijnen ====================
+# config.txt naast dit script bevat ALLES: bovenaan het algemene blok (bronbestand, planmap,
+# standaardinstellingen), daaronder eventueel een blok '[5]' ... '[11]' dat alleen zijn eigen
+# lijn overschrijft. Voorrang: opdrachtregel > blok van de lijn > algemeen blok > het register.
+# Wat op de opdrachtregel is meegegeven geldt voor ALLE lijnen (ze lezen hetzelfde bronbestand).
 $script:BoxFolder = $here
+$cfgAll = Read-ConfigFile $ConfigFile
+
+# bronbestand + planmap zijn lijn-overstijgend en staan dus in het algemene blok
+if (-not $script:HasBox) {
+    $v = Get-CfgVal $cfgAll '' 'BoxPrintingFile'
+    if ($v) { $BoxPrintingFile = $v }
+}
+if (-not $script:HasPlanDir) {
+    $v = Get-CfgVal $cfgAll '' 'PlanFolder'
+    if ($v) { $script:PlanFolder = $v }
+}
+
 foreach ($id in $script:LineOrder) {
-    $def  = $script:LineDefs[$id]
-    $cfgF = Join-Path $here $def.Config
-    $cfg  = Read-ConfigFile $cfgF
+    $def = $script:LineDefs[$id]
 
-    # bronbestand + planmap zijn lijn-overstijgend: eerste lijn die iets zinnigs oplevert wint
-    if (-not $script:HasBox) {
-        if ($cfg.ContainsKey('BoxPrintingFile') -and $cfg['BoxPrintingFile'] -and -not $script:BoxFileSet) {
-            $BoxPrintingFile = $cfg['BoxPrintingFile']; $script:BoxFileSet = $true
-        }
-    }
-    if (-not $script:HasPlanDir -and -not $script:PlanDirSet -and $cfg.ContainsKey('PlanFolder') -and $cfg['PlanFolder']) {
-        $script:PlanFolder = $cfg['PlanFolder']; $script:PlanDirSet = $true
-    }
-
-    # bladen: opdrachtregel > config > het register hierboven
+    # bladen: opdrachtregel > blok van de lijn > algemeen blok > het register hierboven
+    $cBs = Get-CfgVal $cfgAll $id 'BoxSheet'
+    $cRs = Get-CfgVal $cfgAll $id 'RcdbSheet'
     $bs = if ($script:HasBoxSheet) { $BoxSheet }
-          elseif ($cfg.ContainsKey('BoxSheet') -and $cfg['BoxSheet']) { $cfg['BoxSheet'] }
+          elseif ($cBs) { $cBs }
           else { $def.BoxSheets -join ',' }
     $rs = if ($script:HasRcdb) { $RcdbSheet }
-          elseif ($cfg.ContainsKey('RcdbSheet') -and $cfg['RcdbSheet']) { $cfg['RcdbSheet'] }
+          elseif ($cRs) { $cRs }
           else { $def.RcdbSheets -join ',' }
 
+    $cTg = Get-CfgVal $cfgAll $id 'ShiftTarget'
+    $cRm = Get-CfgVal $cfgAll $id 'RecentMinutes'
+    $cSm = Get-CfgVal $cfgAll $id 'StopMinutes'
+    $cHd = Get-CfgVal $cfgAll $id 'HistoryDays'
+    $cPf = Get-CfgVal $cfgAll $id 'PlanFile'
+
     $tg = if ($script:HasTarget) { [int]$ShiftTarget }
-          elseif ($cfg.ContainsKey('ShiftTarget') -and $cfg['ShiftTarget']) { [int]$cfg['ShiftTarget'] }
+          elseif ($cTg) { [int]$cTg }
           else { [int]$ShiftTarget }
     $rm = if ($script:HasRecentMin) { [int]$RecentMinutes }
-          elseif ($cfg.ContainsKey('RecentMinutes') -and $cfg['RecentMinutes']) { [int]$cfg['RecentMinutes'] }
+          elseif ($cRm) { [int]$cRm }
           else { [int]$RecentMinutes }
     if ($rm -lt 1) { $rm = 30 }
     $sm = if ($script:HasStopMin) { [double]$StopMinutes }
-          elseif ($cfg.ContainsKey('StopMinutes') -and $cfg['StopMinutes']) { [double]$cfg['StopMinutes'] }
+          elseif ($cSm) { [double]$cSm }
           else { [double]$StopMinutes }
     if ($sm -le 0) { $sm = 2 }
     $hd = if ($script:HasHistDays) { [int]$HistoryDays }
-          elseif ($cfg.ContainsKey('HistoryDays') -and $cfg['HistoryDays']) { [int]$cfg['HistoryDays'] }
+          elseif ($cHd) { [int]$cHd }
           else { [int]$HistoryDays }
     $pf = if ($script:HasPlanFile) { $PlanFile }
-          elseif ($cfg.ContainsKey('PlanFile') -and $cfg['PlanFile']) { $cfg['PlanFile'] }
+          elseif ($cPf) { $cPf }
           else { '' }
 
     $script:LineCfg[$id] = @{

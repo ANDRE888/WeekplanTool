@@ -8,12 +8,8 @@
 !Test-BoxCount-Lines-Web.cmd
 !Test-BoxCount-Lines-Web-Test.cmd
 
-# --- конфигурация: у КАЖДОЙ линии своя; все читает Test-BoxCount-Lines.ps1 ---
+# --- конфигурация: ОДИН файл на все линии (блоки [5]...[11] внутри) ---
 !config.txt
-!config-L5.txt
-!config-L6.txt
-!config-L8.txt
-!config-L11.txt
 
 # --- archive/ = прежние раздельные скрипты линий 9 и 11 (до слияния).
 #     Правило '*' выше их уже игнорирует; строка ниже нужна, чтобы это было
