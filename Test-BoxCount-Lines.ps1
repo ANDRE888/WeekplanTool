@@ -237,6 +237,11 @@ $script:I18N = @{
   'stops_head_line' = "Hele lijn stil &mdash; alle {0} onderbrekingen, chronologisch"
   'warn_no_boxsheet' = "blad {0} niet gevonden in {1} - dat deel van de lijn ontbreekt."
   'svg_sec' = "sec"
+  'svg_pct_run' = "draait"
+  'svg_pct_stop' = "stil"
+  'tt_strip_pct' = "{0}: draait {1} min, stil {2} min ({3} - {4})"
+  'tt_next_at' = "volgens het weekrooster gepland vanaf {0}"
+  'order_note' = "Volgorde: eerst wat nu draait, dan wat volgens het weekrooster nog komt (op gepland begin), dan wat deze week nog niet gemaakt is, en onderaan wat deze week al gemaakt is."
 
   # ---- sleutels die alleen lijn 9 gebruikt + de per-lijn titel ----
   'h1_l9' = "Dozen per producttype &mdash; huidige ploeg"
@@ -375,6 +380,11 @@ $script:I18N = @{
   'stops_head_line' = "Ligne entière à l'arrêt &mdash; les {0} interruptions, chronologique"
   'warn_no_boxsheet' = "feuille {0} introuvable dans {1} &mdash; cette partie de la ligne manque."
   'svg_sec' = "s"
+  'svg_pct_run' = "marche"
+  'svg_pct_stop' = "arrêt"
+  'tt_strip_pct' = "{0} : en marche {1} min, à l'arrêt {2} min ({3} - {4})"
+  'tt_next_at' = "prévu au planning de la semaine à partir de {0}"
+  'order_note' = "Ordre : d'abord ce qui tourne maintenant, puis ce qui vient selon le planning de la semaine (par début prévu), puis ce qui n'a pas encore été produit cette semaine, et en bas ce qui est déjà fait cette semaine."
 
   # ---- sleutels die alleen lijn 9 gebruikt + de per-lijn titel ----
   'h1_l9' = "Boîtes par type de produit &mdash; équipe en cours"
@@ -513,6 +523,11 @@ $script:I18N = @{
   'stops_head_line' = "Whole line stopped &mdash; all {0} interruptions, chronological"
   'warn_no_boxsheet' = "sheet {0} not found in {1} &mdash; that part of the line is missing."
   'svg_sec' = "sec"
+  'svg_pct_run' = "running"
+  'svg_pct_stop' = "stopped"
+  'tt_strip_pct' = "{0}: running {1} min, stopped {2} min ({3} - {4})"
+  'tt_next_at' = "planned in the week schedule from {0}"
+  'order_note' = "Order: running now first, then what comes next in the week schedule (by planned start), then what has not been made this week, and at the bottom what has already been made this week."
 
   # ---- sleutels die alleen lijn 9 gebruikt + de per-lijn titel ----
   'h1_l9' = "Boxes per product type &mdash; current shift"
@@ -651,6 +666,11 @@ $script:I18N = @{
   'stops_head_line' = "Стояла вся линия &mdash; все {0} перерывов, по времени"
   'warn_no_boxsheet' = "лист {0} не найден в {1} &mdash; эта часть линии отсутствует."
   'svg_sec' = "сек"
+  'svg_pct_run' = "работа"
+  'svg_pct_stop' = "простой"
+  'tt_strip_pct' = "{0}: работала {1} мин, стояла {2} мин ({3} - {4})"
+  'tt_next_at' = "по графику недели с {0}"
+  'order_note' = "Порядок: сначала то, что идёт сейчас, затем то, что дальше по графику недели (по плановому старту), затем то, что на этой неделе ещё не делали, внизу — уже сделанное на этой неделе."
 
   # ---- sleutels die alleen lijn 9 gebruikt + de per-lijn titel ----
   'h1_l9' = "Коробки по типу продукта &mdash; текущая смена"
@@ -770,14 +790,30 @@ function Get-Counter([string]$label) {
     return ''
 }
 
-# Huidige ploeg-interval op basis van 'nu'. Ploegen: 05-13 / 13-21 / 21-05.
+# PLOEGROOSTER. Door de week DRIE ploegen van 8 u (05-13 / 13-21 / 21-05), maar op ZATERDAG en
+# ZONDAG TWEE ploegen van 12 u: 05-17 ('Vr') en 17-05 ('La'). Zo staat het in het planbestand
+# (blad 'Line Schedule Data': Schedule_Shift 1 = 05:00-17:00, 2 = 17:00-05:00; op 'daily shift
+# dpp' is de 3e kolom van een weekenddag altijd 0) en zo telt SAPSTATus (kolommen Zo Vr/Zo La,
+# Za Vr/Za La). Vroeger sneed het dashboard ook het weekend in 3x8 u en legde het de dozen van
+# 05-13 naast het plan van 05-17: lijn 11 op zo 13/09 kwam zo op 65 % terwijl er ~97 % gemaakt was.
+# De productiedag begint om 05:00, dus zaterdag 17-05 loopt door tot zondag 05:00.
+function Test-WeekendDay([datetime]$prodDate) {
+    return ($prodDate.DayOfWeek -eq [DayOfWeek]::Saturday -or $prodDate.DayOfWeek -eq [DayOfWeek]::Sunday)
+}
+# Ploegnummer (1..3, weekend 1..2) voor een uur van een PRODUCTIEDAG (uur 00-04 = de nacht erna).
+function Get-ShiftNoForHour([datetime]$prodDate, [int]$hour) {
+    if (Test-WeekendDay $prodDate) { if ($hour -ge 5 -and $hour -lt 17) { return 1 } else { return 2 } }
+    if ($hour -ge 5 -and $hour -lt 13) { return 1 }
+    if ($hour -ge 13 -and $hour -lt 21) { return 2 }
+    return 3
+}
+# Huidige ploeg-interval op basis van 'nu' (zie het ploegrooster hierboven).
 function Get-ShiftWindow([datetime]$now) {
-    $h = $now.Hour; $today = $now.Date
-    if     ($h -ge 5  -and $h -lt 13) { $s = $today.AddHours(5);  $e = $today.AddHours(13);           $lab = '05:00-13:00'; $c = '1' }
-    elseif ($h -ge 13 -and $h -lt 21) { $s = $today.AddHours(13); $e = $today.AddHours(21);           $lab = '13:00-21:00'; $c = '2' }
-    elseif ($h -ge 21)                { $s = $today.AddHours(21); $e = $today.AddDays(1).AddHours(5);  $lab = '21:00-05:00'; $c = '3' }
-    else                              { $s = $today.AddDays(-1).AddHours(21); $e = $today.AddHours(5); $lab = '21:00-05:00'; $c = '3' }
-    return [pscustomobject]@{ Start = $s; End = $e; Label = $lab; Code = $c }
+    $prod = if ($now.Hour -lt 5) { $now.Date.AddDays(-1) } else { $now.Date }
+    $no   = Get-ShiftNoForHour $prod $now.Hour
+    $b    = Get-ShiftBounds $prod $no
+    $lab  = '{0}-{1}' -f $b[0].ToString('HH:mm'), $b[1].ToString('HH:mm')
+    return [pscustomobject]@{ Start = $b[0]; End = $b[1]; Label = $lab; Code = [string]$no }
 }
 
 # Kies het box-printing bestand: config/param indien aanwezig, anders nieuwste snapshot in de map.
@@ -854,14 +890,15 @@ function Read-LineSchedule($sheets) {
         # kop zoeken (kolomnamen staan in rij 1) en daarna alleen de vier kolommen lezen die
         # we nodig hebben; het blad is ~1.000 regels breed 64 kolommen, alles inlezen is zonde.
         $hdr = $ws.Range("A1:BL1").Value2
-        $colPlat = 0; $colStart = 0; $colEnd = 0; $colSku = 0
+        $colPlat = 0; $colStart = 0; $colEnd = 0; $colSku = 0; $colTgt = 0
         $cMax = $hdr.GetUpperBound(1)
         for ($c = 1; $c -le $cMax; $c++) {
             switch (([string]($hdr.GetValue(1, $c))).Trim()) {
-                'Platform_ID'     { $colPlat  = $c }
-                'Start_Timestamp' { $colStart = $c }
-                'End_Timestamp'   { $colEnd   = $c }
-                'Product_Code'    { $colSku   = $c }
+                'Platform_ID'       { $colPlat  = $c }
+                'Start_Timestamp'   { $colStart = $c }
+                'End_Timestamp'     { $colEnd   = $c }
+                'Product_Code'      { $colSku   = $c }
+                'Target_Case_Count' { $colTgt   = $c }
             }
         }
         if ($colPlat -eq 0 -or $colStart -eq 0 -or $colEnd -eq 0 -or $colSku -eq 0) { return $out }
@@ -870,6 +907,9 @@ function Read-LineSchedule($sheets) {
         if ($last -gt 20000) { $last = 20000 }
         $lo = [Math]::Min([Math]::Min($colPlat, $colStart), [Math]::Min($colEnd, $colSku))
         $hi = [Math]::Max([Math]::Max($colPlat, $colStart), [Math]::Max($colEnd, $colSku))
+        # Target_Case_Count (optioneel): 0 = standby-/stilstandregel, geen echte productie.
+        # Alleen de volgorde 'wat komt er nog' in de producttabel kijkt ernaar.
+        if ($colTgt -gt 0) { $lo = [Math]::Min($lo, $colTgt); $hi = [Math]::Max($hi, $colTgt) }
         $vals = $ws.Range($ws.Cells(2, $lo), $ws.Cells($last, $hi)).Value2
         $rMax = $vals.GetUpperBound(0)
         for ($r = 1; $r -le $rMax; $r++) {
@@ -879,9 +919,12 @@ function Read-LineSchedule($sheets) {
             $st = $vals.GetValue($r, $colStart - $lo + 1)
             $en = $vals.GetValue($r, $colEnd   - $lo + 1)
             if ($p -isnot [double] -or $st -isnot [double] -or $en -isnot [double]) { continue }
+            $tg = $null
+            if ($colTgt -gt 0) { $tv = $vals.GetValue($r, $colTgt - $lo + 1); if ($tv -is [double]) { $tg = [double]$tv } }
             $out += [pscustomobject]@{
                 Platform = [int]$p; Sku = $sap
                 Start = [DateTime]::FromOADate($st); End = [DateTime]::FromOADate($en)
+                Target = $tg
             }
         }
     }
@@ -903,10 +946,108 @@ function Get-PlatformSkus($sched, $platform, [datetime]$from, [datetime]$to) {
     return $set
 }
 
-# Venster van een productiedag + ploeg (05-13 / 13-21 / 21-05, dag begint 05:00).
+# VOLGORDE 'WAT KOMT ER NOG' (producttabel lijnen 5/6/8/11): per smaak het vroegste geplande begin
+# dat nog OPEN staat binnen de lopende productieweek. Open = het begin ligt na 'nu', OF de run is
+# gepland in de LOPENDE ploeg en de smaak heeft haar ploegplan nog niet gehaald (bv. 'nog niet
+# gestart' gepland om 13:00 terwijl het nu 20:28 is: die hoort vooraan in de wachtrij, niet weg).
+# Bron: blad 'Line Schedule Data' (tijd op de minuut; regels met Target_Case_Count 0 zijn standby
+# of stilstand en tellen niet). Heeft het planbestand dat blad niet (of niets voor dit platform),
+# dan het ploegraster van 'daily shift dpp': eerste ploeg met plan > 0, tijd = begin van die ploeg.
+# $shiftPlan / $shiftCount = plan en dozen van de LOPENDE ploeg per smaak.
+function Get-NextPlannedStart($sched, $grid, $platform, $skus, [datetime]$nowDt, $win, [datetime]$weekEnd, $shiftPlan, $shiftCount) {
+    $next = @{}
+    $want = @{}; foreach ($s in @($skus)) { if ($s) { $want[[string]$s] = $true } }
+    $useSched = $false
+    if ($null -ne $platform -and $null -ne $sched) {
+        foreach ($row in @($sched)) {
+            if ($row.Platform -ne [int]$platform) { continue }
+            if ($row.Start -ge $weekEnd -or $row.End -le $win.Start) { continue }
+            $useSched = $true
+            if (-not $want.ContainsKey($row.Sku)) { continue }
+            if ($null -ne $row.Target -and $row.Target -le 0) { continue }
+            $open = ($row.Start -ge $nowDt)
+            if (-not $open -and $row.Start -lt $win.End) {
+                $pl = 0.0; if ($shiftPlan.ContainsKey($row.Sku))  { $pl = [double]$shiftPlan[$row.Sku] }
+                $ct = 0;   if ($shiftCount.ContainsKey($row.Sku)) { $ct = [int]$shiftCount[$row.Sku] }
+                $open = ($pl -gt 0 -and $ct -lt $pl)
+            }
+            if (-not $open) { continue }
+            if (-not $next.ContainsKey($row.Sku) -or $row.Start -lt $next[$row.Sku]) { $next[$row.Sku] = $row.Start }
+        }
+    }
+    if ($useSched -or $null -eq $grid) { return $next }
+
+    # terugval: ploeg voor ploeg door het dagplanrooster, van de lopende ploeg tot het einde van de week
+    $day = $win.Start.Date; $no = [int]$win.Code
+    $rowMax = $grid.GetUpperBound(0)
+    for ($k = 0; $k -lt 30; $k++) {
+        $b = Get-ShiftBounds $day $no
+        if ($b[0] -ge $weekEnd) { break }
+        $col = Find-PlanColumn $grid $day $no
+        if ($col -gt 0) {
+            for ($r = 3; $r -le $rowMax; $r++) {
+                $sap = Format-Sap ($grid.GetValue($r, 2))
+                if (-not $want.ContainsKey($sap) -or $next.ContainsKey($sap)) { continue }
+                $v = $grid.GetValue($r, $col)
+                if ($v -isnot [double] -or $v -le 0) { continue }
+                if ($k -eq 0) {
+                    $pl = 0.0; if ($shiftPlan.ContainsKey($sap))  { $pl = [double]$shiftPlan[$sap] }
+                    $ct = 0;   if ($shiftCount.ContainsKey($sap)) { $ct = [int]$shiftCount[$sap] }
+                    if (-not ($pl -gt 0 -and $ct -lt $pl)) { continue }
+                }
+                $next[$sap] = $b[0]
+            }
+        }
+        $maxNo = if (Test-WeekendDay $day) { 2 } else { 3 }
+        if ($no -lt $maxNo) { $no++ } else { $no = 1; $day = $day.AddDays(1) }
+    }
+    return $next
+}
+
+# Per smaak het begin van de LAATSTE ploeg van deze week waarin ze gemaakt is: eerdere ploegen uit
+# de historie (WeekIdx 0), de lopende ploeg uit het Boxruw-blad ($counts) - die is altijd de laatste.
+function Get-LastMadeMap($history, $counts, [datetime]$shiftStart) {
+    $last = @{}
+    foreach ($h in @($history)) {
+        if ($h.WeekIdx -ne 0) { continue }
+        $hb = Get-ShiftBounds $h.Date $h.ShiftNo
+        foreach ($s in $h.Skus) { if (-not $last.ContainsKey($s.Sku) -or $hb[0] -gt $last[$s.Sku]) { $last[$s.Sku] = $hb[0] } }
+    }
+    foreach ($p in $counts.Keys) { if ([int]$counts[$p] -gt 0) { $last[$p] = $shiftStart } }
+    return $last
+}
+
+# PLAATS VAN EEN SMAAKREGEL in de producttabel (lijnen 5/6/8/11) en in 'Weekplan per smaak' (lijn 9).
+# Vraag gebruiker 17/09/2026: bovenaan wat NU loopt, dan wat volgens het rooster van deze week nog
+# komt (op gepland begin), dan de rest. Groepen:
+#   0 = nu op een draaiende machine (meeste dozen deze ploeg eerst)
+#   1 = wacht in het weekrooster, op gepland begin ($nextAt uit Get-NextPlannedStart)
+#   2 = deze week nog helemaal niet gemaakt en niet meer ingepland
+#   3 = deze week al gemaakt en niet meer ingepland (laatst gemaakt eerst)
+#   9 = geen SAP-code ('(onbekend)')
+# Staat een smaak in het plan van de LOPENDE ploeg, nog niet gehaald, maar kent het rooster er geen
+# tijd voor (regel ontbreekt op 'Line Schedule Data'), dan telt het begin van de ploeg.
+function Get-SkuOrder([string]$sku, [bool]$isCur, $nextAt, $lastMade, [double]$shiftCount, [double]$shiftPlan, [double]$weekMade, [double]$weekPlan, [datetime]$shiftStart) {
+    $na = $null; if ($nextAt.ContainsKey($sku))   { $na = $nextAt[$sku] }
+    $lm = $null; if ($lastMade.ContainsKey($sku)) { $lm = $lastMade[$sku] }
+    if (-not $isCur -and $null -eq $na -and $shiftPlan -gt 0 -and $shiftCount -lt $shiftPlan) { $na = $shiftStart }
+    if (-not (Is-Sku $sku))  { $g = 9; $k1 = 0.0; $k2 = 0.0 }
+    elseif ($isCur)          { $g = 0; $k1 = -$shiftCount; $k2 = -$shiftPlan }
+    elseif ($null -ne $na)   { $g = 1; $k1 = [double]$na.Ticks; $k2 = -$weekPlan }
+    elseif ($weekMade -le 0 -and $shiftCount -le 0) { $g = 2; $k1 = -$weekPlan; $k2 = 0.0 }
+    else {
+        $g = 3; $k2 = -$weekMade
+        $k1 = if ($null -ne $lm) { -[double]$lm.Ticks } else { 0.0 }
+    }
+    return [pscustomobject]@{ NextAt = $na; LastMade = $lm; Group = $g; Key = $k1; Key2 = $k2 }
+}
+
+# Venster van een productiedag + ploeg: door de week 05-13 / 13-21 / 21-05, in het weekend
+# 05-17 / 17-05 (dag begint 05:00). Ploeg N is ook de N-de kolom van die dag op 'daily shift dpp'.
 function Get-ShiftBounds([datetime]$prodDate, [int]$shiftNo) {
-    $st = $prodDate.Date.AddHours(5 + 8 * ($shiftNo - 1))
-    return @($st, $st.AddHours(8))
+    $len = if (Test-WeekendDay $prodDate) { 12 } else { 8 }
+    $st = $prodDate.Date.AddHours(5 + $len * ($shiftNo - 1))
+    return @($st, $st.AddHours($len))
 }
 
 # Leest het plan voor productiedag + ploeg. $skus = producten die deze ploeg draaiden,
@@ -1125,7 +1266,8 @@ function Get-PlanForWeek($vals, [datetime]$weekStart, $lineSkus) {
 # Leest het blad 'L9 datatabel voor 31 dagen': per DAG VAN DE MAAND een blok van 5 kolommen
 # [uur, SAP, doosprint, Machine, aantal]; rij 2 boven het blok = dagnummer, rij 3 = kopjes,
 # data vanaf rij 4. Het blok van dag D bevat de uren 05..23 van D EN 00..04 van D+1 -> dat is
-# precies de PRODUCTIEDAG. Ploeg: 1 = 5-12, 2 = 13-20, 3 = 21-4 (letter: zie Get-ShiftLetter).
+# precies de PRODUCTIEDAG. Ploeg: 1 = 5-12, 2 = 13-20, 3 = 21-4; weekend 1 = 5-16, 2 = 17-4
+# (Get-ShiftNoForHour; letter: zie Get-ShiftLetter).
 # ISO-weeknummer (System.Globalization.ISOWeek bestaat niet in Windows PowerShell 5.1).
 function Get-IsoWeek([datetime]$dt) {
     $dow = [int]$dt.DayOfWeek; if ($dow -eq 0) { $dow = 7 }
@@ -1137,7 +1279,9 @@ function Get-IsoWeek([datetime]$dt) {
 #   oneven week -> Y = ochtend, X = namiddag
 # Het weeknummer is dat van de productieweek (die op zondag start, dus de ISO-week
 # van de maandag erna - zelfde nummering als in de kop van de historie).
+# Weekend (2 ploegen van 12 u): 'Vr' = 05-17 en 'La' = 17-05, net als SAPSTATus (Zo Vr / Za La).
 function Get-ShiftLetter([datetime]$prodDate, [int]$shiftNo) {
+    if (Test-WeekendDay $prodDate) { if ($shiftNo -eq 1) { return 'Vr' } else { return 'La' } }
     if ($shiftNo -eq 3) { return 'Z' }
     $weekStart = $prodDate.AddDays(-[int]$prodDate.DayOfWeek)   # zondag
     $wk = Get-IsoWeek $weekStart.AddDays(1)                     # maandag van die week
@@ -1181,7 +1325,7 @@ function Build-History($valsList, [datetime]$curProdDate, [datetime]$first, [dat
             $n = $vals.GetValue($r, $b + 4)
             if ($n -isnot [double] -or $n -le 0) { continue }
             $lineSkus[$sap] = $true
-            $pl  = if ($h -ge 5 -and $h -le 12) { 1 } elseif ($h -ge 13 -and $h -le 20) { 2 } else { 3 }
+            $pl  = Get-ShiftNoForHour $date $h          # weekend: 2 ploegen van 12 u
             $key = '{0}|{1}' -f $date.ToString('yyyy-MM-dd'), $pl
             if (-not $agg.ContainsKey($key)) { $agg[$key] = @{} }
             if ($agg[$key].ContainsKey($sap)) { $agg[$key][$sap] += [int]$n } else { $agg[$key][$sap] = [int]$n }
@@ -1189,7 +1333,6 @@ function Build-History($valsList, [datetime]$curProdDate, [datetime]$first, [dat
     }
     }
 
-    $ranges  = @{ 1 = '05-13'; 2 = '13-21'; 3 = '21-05' }
     foreach ($key in $agg.Keys) {
         $parts = $key -split '\|'
         $date = [datetime]::ParseExact($parts[0], 'yyyy-MM-dd', $null)
@@ -1223,8 +1366,9 @@ function Build-History($valsList, [datetime]$curProdDate, [datetime]$first, [dat
             break
         }
         $wk = [int][Math]::Floor(($curWeekStart - $date.AddDays(-[int]$date.DayOfWeek)).TotalDays / 7)
+        $bnd = Get-ShiftBounds $date $pl
         $out += [pscustomobject]@{
-            Date = $date; ShiftNo = $pl; Letter = (Get-ShiftLetter $date $pl); Range = $ranges[$pl]
+            Date = $date; ShiftNo = $pl; Letter = (Get-ShiftLetter $date $pl); Range = ('{0:HH}-{1:HH}' -f $bnd[0], $bnd[1])
             Total = $tot; Skus = $skus; Target = $pln.Total; PlanPerSku = $pln.PerSku
             WeekIdx = $wk; WeekStart = $date.AddDays(-[int]$date.DayOfWeek)
         }
@@ -1759,7 +1903,26 @@ function Get-BoxData9 {
                     $ds = ''
                     if     ($wp -and $wp.Desc.ContainsKey($k)) { $ds = [string]$wp.Desc[$k] }
                     elseif ($planDesc.ContainsKey($k))         { $ds = [string]$planDesc[$k] }
-                    $wrows += [pscustomobject]@{ Sku = $k; Desc = $ds; Plan = $pl; Made = $mk; IsCur = ($k -eq $mainProd) }
+                    $wrows += [pscustomobject]@{ Sku = $k; Desc = $ds; Plan = $pl; Made = $mk; IsCur = ($k -eq $mainProd)
+                                                 NextAt = $null; LastMade = $null; OrderGroup = 0; OrderKey = 0.0; OrderKey2 = 0.0 }
+                }
+                # ---- VOLGORDE, net als de producttabel van de machinelijnen (vraag gebruiker 17/09/2026) ----
+                # nu -> wat volgens het weekrooster nog komt (op gepland begin) -> nog niet gemaakt ->
+                # al gemaakt. 'Nu' is hier het product van de laatste doos (lijn 9 draait een smaak tegelijk).
+                if ($wrows.Count -gt 0) {
+                    $wkEnd  = $wkStart.Date.AddDays(7).AddHours(5)       # productieweek: zondag 05:00 -> zondag 05:00
+                    $pSched = $null; $pGrid = $null
+                    if ($null -ne $pt) { $pSched = $pt.Sched; $pGrid = $pt.Grid }
+                    $nextAt   = Get-NextPlannedStart $pSched $pGrid $script:Platform @($wrows | ForEach-Object { $_.Sku }) $nowDt $win $wkEnd $planPerSku $counts
+                    $lastMade = Get-LastMadeMap $d.History $counts $win.Start
+                    foreach ($w in $wrows) {
+                        $sc = 0.0; if ($counts.ContainsKey($w.Sku))     { $sc = [double]$counts[$w.Sku] }
+                        $sp = 0.0; if ($planPerSku.ContainsKey($w.Sku)) { $sp = [double]$planPerSku[$w.Sku] }
+                        $o = Get-SkuOrder $w.Sku $w.IsCur $nextAt $lastMade $sc $sp $w.Made $w.Plan $win.Start
+                        $w.NextAt = $o.NextAt; $w.LastMade = $o.LastMade
+                        $w.OrderGroup = $o.Group; $w.OrderKey = $o.Key; $w.OrderKey2 = $o.Key2
+                    }
+                    $wrows = @($wrows | Sort-Object OrderGroup, OrderKey, OrderKey2, Sku)
                 }
                 if ($wrows.Count -gt 0) {
                     $tp = 0.0; $tm = 0
@@ -2456,6 +2619,8 @@ function Get-BoxData11 {
                 PerMin   = [double]$r.PerMin
                 Machines = @($r.Machines)
                 IsCur    = [bool]$r.IsMain
+                # volgorde in de tabel (zie hieronder)
+                NextAt   = $null; LastMade = $null; OrderGroup = 0; OrderKey = 0.0; OrderKey2 = 0.0
             }
         }
         foreach ($w in $d.WeekRows) {
@@ -2466,6 +2631,7 @@ function Get-BoxData11 {
                     WeekMadeBefore = 0; WeekDone = $false
                     Count    = 0; Plan = 0.0; Proj = 0.0; HasProj = $false; PerMin = 0.0
                     Machines = @(); IsCur = $false
+                    NextAt   = $null; LastMade = $null; OrderGroup = 0; OrderKey = 0.0; OrderKey2 = 0.0
                 }
             }
             $c = $combi[$w.Sku]
@@ -2484,17 +2650,26 @@ function Get-BoxData11 {
             $c.WeekMadeBefore = $mb
             $c.WeekDone = ($c.WeekPlan -gt 0 -and $c.Plan -gt 0 -and $mb -ge $c.WeekPlan)
         }
-        # volgorde: eerst wat NU loopt, dan wat deze ploeg gepland staat, dan de rest van de week;
-        # dozen zonder etiketgegevens ('(onbekend)') helemaal onderaan
         # naam erbij voor alles wat het weekplan niet noemt (bv. een smaak die maandag draaide
         # maar deze week niet meer gepland staat) - anders blijft de kolom 'Product' leeg
         foreach ($cv in $combi.Values) {
             if ([string]::IsNullOrWhiteSpace($cv.Desc) -and $skuNames.ContainsKey($cv.Sku)) { $cv.Desc = [string]$skuNames[$cv.Sku] }
         }
-        $sortG = { if (-not (Is-Sku $_.Sku)) { 3 } elseif ($_.Count -gt 0) { 0 } elseif ($_.Plan -gt 0) { 1 } else { 2 } }
-        $sortV = { if ($_.Count -gt 0) { [double]$_.Count } elseif ($_.Plan -gt 0) { [double]$_.Plan } else { [double]$_.WeekPlan } }
+
+        # ---- VOLGORDE: nu -> volgens het weekrooster -> rest (zie Get-SkuOrder) ----
+        $wkSunday = $prodDate.AddDays(-[int]$prodDate.DayOfWeek)
+        $weekEnd  = $wkSunday.AddDays(7).AddHours(5)             # productieweek: zondag 05:00 -> zondag 05:00
+        $pSched = $null; $pGrid = $null
+        if ($null -ne $pt) { $pSched = $pt.Sched; $pGrid = $pt.Grid }
+        $nextAt   = Get-NextPlannedStart $pSched $pGrid $script:Platform @($combi.Keys) $nowDt $win $weekEnd $planPerSku $counts
+        $lastMade = Get-LastMadeMap $d.History $counts $win.Start
+        foreach ($cv in $combi.Values) {
+            $o = Get-SkuOrder $cv.Sku $cv.IsCur $nextAt $lastMade $cv.Count $cv.Plan $cv.WeekMade $cv.WeekPlan $win.Start
+            $cv.NextAt = $o.NextAt; $cv.LastMade = $o.LastMade
+            $cv.OrderGroup = $o.Group; $cv.OrderKey = $o.Key; $cv.OrderKey2 = $o.Key2
+        }
         $d.SkuNames    = $skuNames
-        $d.Combined    = @($combi.Values | Sort-Object @{ Expression = $sortG }, @{ Expression = $sortV; Descending = $true })
+        $d.Combined    = @($combi.Values | Sort-Object OrderGroup, OrderKey, OrderKey2, Sku)
         $d.HasCombined = ($d.Combined.Count -gt 0)
         # uitleg onder de tabel voor elke smaak waarvan het weekplan bij ploegstart al rond was
         $wdNotes = @()
@@ -2672,14 +2847,44 @@ function New-MinuteChartSvg($d) {
     return $sb.ToString()
 }
 
+# Rechterkolom naast een stilstandstrook: hoeveel % van de VERSTREKEN ploegtijd er gedraaid en
+# stilgestaan is. $runPct = draaitijd in % ($null = er is nog niets verstreken -> streepje).
+# Eerst op 1 decimaal afronden en stilstand = 100 - draaitijd, dan tellen de twee cijfers altijd
+# precies op tot 100,0. De tooltip geeft de minuten en het venster ($from + $elMin): voor een machine
+# loopt dat tot de laatste doos van de lijn (zoals de kolom 'Draaitijd'), niet tot 'nu' - staat de
+# HELE lijn al lang stil, dan zie je daar dus bv. 13:00 - 19:01. $dim = grijs ('(onbekend)': geen machine).
+function Get-StripPctSvg([double]$xRun, [double]$xStop, [double]$yText, $runPct, [double]$runMin, [double]$elMin, [datetime]$from, [string]$label, [bool]$bold, [bool]$dim) {
+    if ($null -eq $runPct -or $elMin -lt 1) {
+        return "<text x='$(SvgN $xStop)' y='$(SvgN $yText)' fill='#64748b' font-size='11' text-anchor='end'>&#8212;</text>"
+    }
+    $pRun  = [Math]::Round([Math]::Min(100.0, [Math]::Max(0.0, [double]$runPct)), 1, [MidpointRounding]::AwayFromZero)
+    $pStop = 100.0 - $pRun
+    $fw    = if ($bold) { '700' } else { '600' }
+    $cRun  = if ($dim) { '#64748b' } else { '#34d399' }
+    $cStop = if ($dim) { '#64748b' } else { '#f87171' }
+    $tip   = (T 'tt_strip_pct') -f $label, (NF $runMin), (NF ([Math]::Max(0.0, $elMin - $runMin))),
+                                  $from.ToString('HH:mm'), $from.AddMinutes($elMin).ToString('HH:mm')
+    return "<g><title>$(HtmlEnc $tip)</title>" +
+           "<text x='$(SvgN $xRun)' y='$(SvgN $yText)' fill='$cRun' font-size='11' font-weight='$fw' text-anchor='end'>$(PF $pRun) %</text>" +
+           "<text x='$(SvgN $xStop)' y='$(SvgN $yText)' fill='$cStop' font-size='11' font-weight='$fw' text-anchor='end'>$(PF $pStop) %</text></g>"
+}
+# Kopjes boven die kolom ('draait' / 'stil').
+function Get-StripPctHeadSvg([double]$xRun, [double]$xStop, [double]$y) {
+    return "<text x='$(SvgN $xRun)' y='$(SvgN $y)' fill='#94a3b8' font-size='10' text-anchor='end'>$(HtmlEnc (T 'svg_pct_run'))</text>" +
+           "<text x='$(SvgN $xStop)' y='$(SvgN $y)' fill='#94a3b8' font-size='10' text-anchor='end'>$(HtmlEnc (T 'svg_pct_stop'))</text>"
+}
+
 function New-StopStripSvg($d) {
-    $W = 1040; $L = 46; $R = 14; $T = 8; $H = 56; $barH = 26
-    $plotW = $W - $L - $R
+    # rechts van de strook: % draaitijd / % stilstand (zelfde cijfer als de kaart 'Draaitijd')
+    $W = 1040; $L = 46; $R = 14; $T = 22; $H = 70; $barH = 26; $pctW = 116
+    $plotW = $W - $L - $R - $pctW
+    $xStop = $W - $R; $xRun = $xStop - 58
     $n = [int]$d.ShiftMin; if ($n -le 0) { $n = 480 }
     $baseY = $T + $barH
 
     $sb = New-Object System.Text.StringBuilder
     [void]$sb.Append("<svg viewBox='0 0 $W $H' width='100%' preserveAspectRatio='xMidYMid meet' xmlns='http://www.w3.org/2000/svg' font-family='Segoe UI,system-ui,Arial,sans-serif'>")
+    [void]$sb.Append((Get-StripPctHeadSvg $xRun $xStop ($T - 8)))
     # afgeronde baan: hele ploeg = nog te gaan (grijs)
     [void]$sb.Append("<rect x='$L' y='$T' width='$plotW' height='$barH' rx='7' fill='#172033' stroke='#334155'/>")
     $nowOff = [double]$d.NowOffsetMin; if ($nowOff -lt 0) { $nowOff = 0 }; if ($nowOff -gt $n) { $nowOff = $n }
@@ -2714,17 +2919,32 @@ function New-StopStripSvg($d) {
         [void]$sb.Append("<text x='$(SvgN $x)' y='$($baseY + 16)' fill='#94a3b8' font-size='11' text-anchor='middle'>$lab</text>")
     }
     [void]$sb.Append("<text x='$($L - 6)' y='$($T + 17)' fill='#94a3b8' font-size='11' text-anchor='end'>$(T 'svg_line')</text>")
+    $pct = if ([double]$d.ElapsedShiftMin -ge 1) { [double]$d.AvailPct } else { $null }
+    [void]$sb.Append((Get-StripPctSvg $xRun $xStop ($T + 17) $pct ([double]$d.RunMin) ([double]$d.ElapsedShiftMin) $d.ShiftStart (T 'svg_line') $true $false))
     [void]$sb.Append("</svg>")
     return $sb.ToString()
 }
 
 function New-MachineStripSvg($d) {
-    $W = 1040; $L = 78; $R = 14; $T = 8; $rowH = 20; $gapY = 5; $B = 22
-    $plotW = $W - $L - $R
+    # rechts van elke strook: % draaitijd / % stilstand van de verstreken ploegtijd
+    $W = 1040; $L = 78; $R = 14; $T = 24; $rowH = 20; $gapY = 5; $B = 22; $pctW = 116
+    $plotW = $W - $L - $R - $pctW
+    $xStop = $W - $R; $xRun = $xStop - 58
     $n = [int]$d.ShiftMin; if ($n -le 0) { $n = 480 }
     $rows = @()
-    $rows += [pscustomobject]@{ Label = (T 'svg_line'); Stops = $d.Stops; Wide = $true }
-    foreach ($m in $d.Machines) { $rows += [pscustomobject]@{ Label = $m.Machine; Stops = $m.Stops; Wide = $false } }
+    # lijn = wat de bovenste strook tekent: stil zolang GEEN ENKELE machine een doos maakt (tot 'nu')
+    $lineEl  = [double]$d.NowOffsetMin
+    $lineRun = [Math]::Max(0.0, $lineEl - [double]$d.StopMin)
+    $linePct = if ($lineEl -ge 1) { 100.0 * $lineRun / $lineEl } else { $null }
+    $rows += [pscustomobject]@{ Label = (T 'svg_line'); Stops = $d.Stops; Wide = $true
+                                RunPct = $linePct; RunMin = $lineRun; ElMin = $lineEl; Dim = $false }
+    # machine = hetzelfde cijfer als de kolom 'Draaitijd' in de tabel eronder (gerekend tot de data-horizon)
+    foreach ($m in $d.Machines) {
+        $mEl  = [double]$d.MachElapsedMin
+        $mPct = if ($mEl -ge 1) { [double]$m.AvailPct } else { $null }
+        $rows += [pscustomobject]@{ Label = $m.Machine; Stops = $m.Stops; Wide = $false
+                                    RunPct = $mPct; RunMin = [double]$m.RunMin; ElMin = $mEl; Dim = (-not $m.IsReal) }
+    }
     $H = $T + $rows.Count * ($rowH + $gapY) + $B
 
     $nowOff = [double]$d.NowOffsetMin; if ($nowOff -lt 0) { $nowOff = 0 }; if ($nowOff -gt $n) { $nowOff = $n }
@@ -2733,6 +2953,7 @@ function New-MachineStripSvg($d) {
     $sb = New-Object System.Text.StringBuilder
     [void]$sb.Append("<svg viewBox='0 0 $W $H' width='100%' preserveAspectRatio='xMidYMid meet' xmlns='http://www.w3.org/2000/svg' font-family='Segoe UI,system-ui,Arial,sans-serif'>")
     [void]$sb.Append("<clipPath id='mstripClip'><rect x='$L' y='0' width='$plotW' height='$H'/></clipPath>")
+    [void]$sb.Append((Get-StripPctHeadSvg $xRun $xStop ($T - 9)))
 
     $y = $T
     foreach ($r in $rows) {
@@ -2757,6 +2978,7 @@ function New-MachineStripSvg($d) {
         [void]$sb.Append("</g>")
         $fw = if ($r.Wide) { '700' } else { '400' }
         [void]$sb.Append("<text x='$($L - 8)' y='$(SvgN ($y + $h - 6))' fill='#cbd5e1' font-size='11' font-weight='$fw' text-anchor='end'>$(HtmlEnc $r.Label)</text>")
+        [void]$sb.Append((Get-StripPctSvg $xRun $xStop ($y + $h - 6) $r.RunPct $r.RunMin $r.ElMin $d.ShiftStart ([string]$r.Label) $r.Wide $r.Dim))
         $y += $rowH + $gapY
     }
 
@@ -3145,6 +3367,11 @@ function Render-Html9($d, [string]$lang = 'nl') {
                 $mark = if ($w.IsCur) { " <span class='nu'>$(T 'kind_nowmark')</span>" }
                         elseif ($w.Made -le 0) { " <span class='soon'>$(T 'kind_notstarted')</span>" }
                         else { "" }
+                # wacht in het rooster: wanneer de smaak gepland staat (daarop is de volgorde gebaseerd)
+                if ($w.OrderGroup -eq 1 -and $null -ne $w.NextAt) {
+                    $nxTxt = $w.NextAt.ToString('ddd HH:mm', $cu2)
+                    $mark += " <span class='nxt' title='$(HtmlEnc ((T 'tt_next_at') -f $nxTxt))'>$(HtmlEnc $nxTxt)</span>"
+                }
                 $plTxt = if ($w.Plan -gt 0) { NF $w.Plan } else { "&mdash;" }
                 $rest  = [double]$w.Plan - [double]$w.Made
                 $rTxt  = if ($w.Plan -gt 0) { "<span class='$(if ($rest -gt 0) { 'behind' } else { 'done' })'>$(NF $rest)</span>" } else { "&mdash;" }
@@ -3162,6 +3389,7 @@ function Render-Html9($d, [string]$lang = 'nl') {
                    "<div class='tw'><table class='shift'><thead><tr><th>$(T 'th_producttype')</th><th class='prd'>$(T 'th_product')</th>" +
                    "<th class='num'>$(T 'th_made_week')</th><th class='num'>$(T 'th_plan_week')</th><th class='num'>$(T 'th_rest_week')</th>" +
                    "<th>$(T 'th_progress')</th></tr></thead><tbody>$wRows</tbody></table></div>" +
+                   "<div class='wdesc'>$(T 'order_note')</div>" +
                    "<div class='wdesc'>$((T 'week_note') -f (HtmlEnc $d.Sheet), (HtmlEnc $d.HistSheet))</div>"
         }
 
@@ -3274,6 +3502,8 @@ function Render-Html9($d, [string]$lang = 'nl') {
            ".card .split .pcs{font-size:12px;margin-left:6px}" +
            ".card .pcl.g{color:#22c55e}.card .pcl.a{color:#fbbf24}.card .pcl.r{color:#ef4444}" +
            ".soon{background:#334155;color:#cbd5e1;font-size:11px;padding:1px 7px;border-radius:8px;margin-left:4px;vertical-align:middle}" +
+           # gepland begin van een smaak die in het weekrooster wacht (bv. 'do 14:30')
+           ".nxt{border:1px solid #475569;color:#cbd5e1;font-size:11px;font-weight:400;padding:0 6px;border-radius:8px;margin-left:4px;vertical-align:middle;white-space:nowrap;font-variant-numeric:tabular-nums}" +
            ".card .split .tv{white-space:nowrap}.card .split .ph{color:#94a3b8;font-size:12px;margin-left:5px}" +
            # losse regel onder het grote getal (bv. 'Target bereikt om 21:19'): gewoon links
            # uitgelijnd meelopende tekst, breekt netjes af als de kaart smal is
@@ -3307,7 +3537,7 @@ function Render-Html9($d, [string]$lang = 'nl') {
            ".shift td.num,.shift th.num{padding-left:7px;padding-right:7px}.shift td.pct{width:118px}" +
            ".pw{gap:6px}.pw .pv{min-width:44px;font-size:12px}.pw .bar{min-width:30px}}" +
            "@media(max-width:800px){.shift th{font-size:9px;padding:7px 5px;white-space:normal}" +
-           ".shift td,.hist td{font-size:13px;padding:8px 5px}.shift td.sku{white-space:normal}.nu,.soon{margin-left:0}" +
+           ".shift td,.hist td{font-size:13px;padding:8px 5px}.shift td.sku{white-space:normal}.nu,.soon,.nxt{margin-left:0}" +
            ".shift td.num,.shift th.num{padding-left:4px;padding-right:4px}.shift td.pct{width:86px}" +
            ".pw .pv{min-width:36px;font-size:11px}.pw .bar{min-width:16px;height:6px}" +
            ".hist .hsku{font-size:11px;padding:1px 5px}}" +
@@ -3316,7 +3546,7 @@ function Render-Html9($d, [string]$lang = 'nl') {
            ".shift td.num,.shift th.num{padding-left:3px;padding-right:3px}" +
            # op een telefoon is het balkje luxe: alleen het percentage, kolom zo smal mogelijk
            ".shift td.pct{width:1%}.pw .bar{display:none}.pw .pv{min-width:0;font-size:11px}" +
-           ".nu,.soon{font-size:9px;padding:0 4px}.hist .hsku{font-size:10px;padding:0 4px;margin:1px 2px 1px 0}}"
+           ".nu,.soon,.nxt{font-size:9px;padding:0 4px}.hist .hsku{font-size:10px;padding:0 4px;margin:1px 2px 1px 0}}"
 
     $langScript = "<script>(function(){var p=new URLSearchParams(location.search);var l=p.get('lang');if(l){try{localStorage.setItem('bc_lang',l)}catch(e){}}else{try{var s=localStorage.getItem('bc_lang');if(s&&s!=='$($script:DefaultLang)'){location.replace('/?lang='+s)}}catch(e){}}})();</script>"
 
@@ -3551,6 +3781,8 @@ function Render-Html11($d, [string]$lang = 'nl') {
         $lastHtml = if ($d.LastText) { "<div class='wdesc'>$((T 'last_box') -f $lastBoxTxt, $d.ParsedRows, $skipTxt)</div>" } else { "" }
 
         if ($d.HasCombined) {
+            $cn2 = $script:CultMap[$lang]
+            $cu2 = try { [System.Globalization.CultureInfo]::GetCultureInfo($cn2) } catch { $script:nl }
             $rows = ""
             foreach ($r in $d.Combined) {
                 $cls  = if ($r.IsCur) { "cur" } else { "" }
@@ -3558,6 +3790,11 @@ function Render-Html11($d, [string]$lang = 'nl') {
                         elseif ($r.Plan -gt 0 -and $r.Count -le 0) { " <span class='soon'>$(T 'kind_notstarted')</span>" }
                         else { "" }
                 if ($r.WeekDone) { $mark += " <span class='soon'>$(T 'kind_weekdone')</span>" }
+                # wacht in het rooster: wanneer de smaak gepland staat (daarop is de volgorde gebaseerd)
+                if ($r.OrderGroup -eq 1 -and $null -ne $r.NextAt) {
+                    $nxTxt = $r.NextAt.ToString('ddd HH:mm', $cu2)
+                    $mark += " <span class='nxt' title='$(HtmlEnc ((T 'tt_next_at') -f $nxTxt))'>$(HtmlEnc $nxTxt)</span>"
+                }
                 # --- deze week ---
                 $wPct = ""
                 if ($r.WeekPlan -gt 0) {
@@ -3584,9 +3821,10 @@ function Render-Html11($d, [string]$lang = 'nl') {
                     $tTtl = (T 'tt_tempo_mach') -f (NF $r.Count), (@($r.Machines).Count), (@($r.Machines) -join ', ')
                     $sTmp = "<span title='$(HtmlEnc $tTtl)'>$(PF2 $r.PerMin)</span>"
                 }
+                # kolomgroepen: eerst DEZE PLOEG, dan DEZE WEEK (volgorde op vraag van de gebruiker)
                 $rows += "<tr class='$cls'><td class='sku'>$(HtmlEnc $r.Sku)$mark</td><td class='prd'>$(HtmlEnc $r.Desc)</td>" +
-                         "<td class='num gsep'>$wMade$wPct</td><td class='num'>$wPlan</td><td class='num'>$wRest</td>" +
-                         "<td class='num gsep'>$(NF $r.Count)$sPct</td><td class='num'>$sPlan</td><td class='num'>$sProj</td><td class='num'>$sTmp</td></tr>"
+                         "<td class='num gsep'>$(NF $r.Count)$sPct</td><td class='num'>$sPlan</td><td class='num'>$sProj</td><td class='num'>$sTmp</td>" +
+                         "<td class='num gsep'>$wMade$wPct</td><td class='num'>$wPlan</td><td class='num'>$wRest</td></tr>"
             }
             $wtRest  = [double]$d.WeekPlanTotal - [double]$d.WeekMadeTotal
             $wtRTxt  = if ($d.WeekPlanTotal -gt 0) { "<span class='$(if ($wtRest -gt 0) { 'behind' } else { 'done' })'>$(NF $wtRest)</span>" } else { "&mdash;" }
@@ -3594,24 +3832,23 @@ function Render-Html11($d, [string]$lang = 'nl') {
             $wtPlan  = if ($d.WeekPlanTotal -gt 0) { NF $d.WeekPlanTotal } else { "&mdash;" }
             $totProj = if ($d.HasForecast) { NF $d.ProjTotal } else { "&mdash;" }
             $rows += "<tr class='tot'><td colspan='2'>$(T 'total')</td>" +
-                     "<td class='num gsep'>$wtMade</td><td class='num'>$wtPlan</td><td class='num'>$wtRTxt</td>" +
                      "<td class='num gsep'>$(NF $d.Total)</td><td class='num'>$(NF $d.Target)</td><td class='num'>$totProj</td>" +
-                     "<td class='num'>$(PF2 $d.PerMin)</td></tr>"
+                     "<td class='num'>$(PF2 $d.PerMin)</td>" +
+                     "<td class='num gsep'>$wtMade</td><td class='num'>$wtPlan</td><td class='num'>$wtRTxt</td></tr>"
 
             $wkBron = ""
             if ($d.HasWeekPlan -and $d.HistWeekStart) {
-                $cn2 = $script:CultMap[$lang]
-                $cu2 = try { [System.Globalization.CultureInfo]::GetCultureInfo($cn2) } catch { $script:nl }
                 $wkBron = (T 'week_bron') -f $d.WeekNo, (HtmlEnc $d.HistWeekStart.ToString('dd/MM', $cu2)), (HtmlEnc $d.HistWeekStart.AddDays(6).ToString('dd/MM', $cu2))
             }
             $table += "<h2 class='sec'>$(T 'sec_all_products') <span class='bron'>$wkBron</span></h2>" +
                       "<div class='tw'><table class='shift'><thead>" +
                       "<tr><th rowspan='2'>$(T 'th_producttype')</th><th rowspan='2' class='prd'>$(T 'th_product')</th>" +
-                      "<th colspan='3' class='grp gsep'>$(T 'grp_week')</th><th colspan='4' class='grp gsep'>$(T 'grp_shift')</th></tr>" +
-                      "<tr><th class='num gsep'>$(T 'th_made_week')</th><th class='num'>$(T 'th_plan')</th><th class='num'>$(T 'th_rest_week')</th>" +
-                      "<th class='num gsep'>$(T 'th_made_week')</th><th class='num'>$(T 'th_plan')</th><th class='num wr'>$(T 'th_prognose')</th>" +
-                      "<th class='num'>$(T 'th_tempo')</th></tr></thead>" +
+                      "<th colspan='4' class='grp gsep'>$(T 'grp_shift')</th><th colspan='3' class='grp gsep'>$(T 'grp_week')</th></tr>" +
+                      "<tr><th class='num gsep'>$(T 'th_made_week')</th><th class='num'>$(T 'th_plan')</th><th class='num wr'>$(T 'th_prognose')</th>" +
+                      "<th class='num'>$(T 'th_tempo')</th>" +
+                      "<th class='num gsep'>$(T 'th_made_week')</th><th class='num'>$(T 'th_plan')</th><th class='num'>$(T 'th_rest_week')</th></tr></thead>" +
                       "<tbody>$rows</tbody></table></div>" +
+                      "<div class='wdesc'>$(T 'order_note')</div>" +
                       "<div class='wdesc'>$((T 'week_note') -f (HtmlEnc $d.Sheet), (HtmlEnc $d.HistSheet))</div>"
             # per smaak die het weekplan al rond had: waarom haar dagplan blijft staan maar niet gedraaid wordt
             foreach ($wn in @($d.WeekDoneNotes)) {
@@ -3745,6 +3982,8 @@ function Render-Html11($d, [string]$lang = 'nl') {
            # gegroepeerde kop (WEEK | PLOEG) met een lijntje tussen de groepen
            ".shift th.grp{text-align:center;background:#131c2e;color:#cbd5e1;letter-spacing:.06em}" +
            ".shift td.gsep,.shift th.gsep{border-left:1px solid #475569}" +
+           # gepland begin van een smaak die in het weekrooster wacht (bv. 'do 14:30')
+           ".nxt{border:1px solid #475569;color:#cbd5e1;font-size:11px;font-weight:400;padding:0 6px;border-radius:8px;margin-left:4px;vertical-align:middle;white-space:nowrap;font-variant-numeric:tabular-nums}" +
            ".shift td .pcs{display:inline-block;min-width:54px;text-align:right;font-size:12px;margin-left:6px;font-weight:600}" +
            ".shift td .pcs.g{color:#22c55e}.shift td .pcs.a{color:#fbbf24}.shift td .pcs.r{color:#ef4444}" +
            ".hist td{font-size:14px}.hist tr.daybreak td{border-top:2px solid #475569}" +
@@ -3767,7 +4006,7 @@ function Render-Html11($d, [string]$lang = 'nl') {
            ".shift td.num,.shift th.num{padding-left:7px;padding-right:7px}.shift td.pct{width:118px}" +
            ".pw{gap:6px}.pw .pv{min-width:44px;font-size:12px}.pw .bar{min-width:30px}}" +
            "@media(max-width:800px){.shift th{font-size:9px;padding:7px 5px;white-space:normal}" +
-           ".shift td,.hist td{font-size:13px;padding:8px 5px}.shift td.sku{white-space:normal}.nu,.soon{margin-left:0}" +
+           ".shift td,.hist td{font-size:13px;padding:8px 5px}.shift td.sku{white-space:normal}.nu,.soon,.nxt{margin-left:0}" +
            ".shift td.num,.shift th.num{padding-left:4px;padding-right:4px}.shift td.pct{width:86px}" +
            ".pw .pv{min-width:36px;font-size:11px}.pw .bar{min-width:16px;height:6px}" +
            ".hist .hsku{font-size:11px;padding:1px 5px}}" +
@@ -3776,7 +4015,7 @@ function Render-Html11($d, [string]$lang = 'nl') {
            ".shift td.num,.shift th.num{padding-left:3px;padding-right:3px}" +
            # op een telefoon is het balkje luxe: alleen het percentage, kolom zo smal mogelijk
            ".shift td.pct{width:1%}.pw .bar{display:none}.pw .pv{min-width:0;font-size:11px}" +
-           ".nu,.soon{font-size:9px;padding:0 4px}.hist .hsku{font-size:10px;padding:0 4px;margin:1px 2px 1px 0}}" +
+           ".nu,.soon,.nxt{font-size:9px;padding:0 4px}.hist .hsku{font-size:10px;padding:0 4px;margin:1px 2px 1px 0}}" +
            # 9 kolommen moeten op een smal scherm passen: percentages zijn dan luxe
            "@media(max-width:900px){.shift td .pcs{display:none}}"
 
