@@ -115,7 +115,10 @@ function Format-Dur([double]$minVal) {
 }
 function HtmlEnc([string]$s) {
     if ($null -eq $s) { return "" }
-    return ($s -replace '&', '&amp;' -replace '<', '&lt;' -replace '>', '&gt;' -replace '"', '&quot;')
+    # OOK de rechte apostrof: tooltips staan in title='...' met ENKELE aanhalingstekens, en het
+    # Franse blok zit er vol mee (l'objectif, a l'arret, d'equipe). Zonder deze regel brak zo'n
+    # tekst het attribuut en verdween de halve tooltip uit de HTML.
+    return ($s -replace '&', '&amp;' -replace '<', '&lt;' -replace '>', '&gt;' -replace '"', '&quot;' -replace "'", '&#39;')
 }
 # ============================ I18N (NL/FR/EN/RU) ============================
 $script:Langs = @('nl','fr','en','ru')
@@ -192,6 +195,7 @@ $script:I18N = @{
   'last_box' = "Laatste doos: {0} &middot; geparseerde rijen: {1}{2}"
   'last_box_txt' = "{0} - {1} (doos {2})"
   'skip_txt' = " &middot; rij 11 = startwaarde ophaalvenster (niet geteld)"
+  'skip_blank' = " &middot; {0} rij(en) zonder etiket overgeslagen"
   'empty_state' = "Geen dozen in deze ploeg-interval. Geparseerde rijen: {0}. Target ploeg {1} &middot; {2}."
   'ts_plan' = "plan {0} (week {1}), {2} ploeg {3}"
   'ts_planfallback' = "plan {0} &mdash; nog niets gemaakt, verwacht {1}"
@@ -241,6 +245,8 @@ $script:I18N = @{
   'svg_pct_stop' = "stil"
   'tt_strip_pct' = "{0}: draait {1} min, stil {2} min ({3} - {4})"
   'tt_next_at' = "volgens het weekrooster gepland vanaf {0}"
+  'nxt_from' = "vanaf {0}"
+  'tt_next_from' = "loopt volgens het weekrooster al vanaf {0}; het ploegplan is nog niet gehaald"
   'order_note' = "Volgorde: eerst wat nu draait, dan wat volgens het weekrooster nog komt (op gepland begin), dan wat deze week nog niet gemaakt is, en onderaan wat deze week al gemaakt is."
 
   # ---- sleutels die alleen lijn 9 gebruikt + de per-lijn titel ----
@@ -335,6 +341,7 @@ $script:I18N = @{
   'last_box' = "Dernière boîte : {0} &middot; lignes analysées : {1}{2}"
   'last_box_txt' = "{0} - {1} (boîte {2})"
   'skip_txt' = " &middot; ligne 11 = valeur initiale de la fenêtre (non comptée)"
+  'skip_blank' = " &middot; {0} ligne(s) sans étiquette ignorée(s)"
   'empty_state' = "Aucune boîte dans cet intervalle d'équipe. Lignes analysées : {0}. Objectif équipe {1} &middot; {2}."
   'ts_plan' = "plan {0} (semaine {1}), {2} équipe {3}"
   'ts_planfallback' = "plan {0} &mdash; rien encore produit, attendu {1}"
@@ -384,6 +391,8 @@ $script:I18N = @{
   'svg_pct_stop' = "arrêt"
   'tt_strip_pct' = "{0} : en marche {1} min, à l'arrêt {2} min ({3} - {4})"
   'tt_next_at' = "prévu au planning de la semaine à partir de {0}"
+  'nxt_from' = "depuis {0}"
+  'tt_next_from' = "prévu au planning de la semaine depuis {0} ; le plan de l'équipe n'est pas encore atteint"
   'order_note' = "Ordre : d'abord ce qui tourne maintenant, puis ce qui vient selon le planning de la semaine (par début prévu), puis ce qui n'a pas encore été produit cette semaine, et en bas ce qui est déjà fait cette semaine."
 
   # ---- sleutels die alleen lijn 9 gebruikt + de per-lijn titel ----
@@ -478,6 +487,7 @@ $script:I18N = @{
   'last_box' = "Last box: {0} &middot; parsed rows: {1}{2}"
   'last_box_txt' = "{0} - {1} (box {2})"
   'skip_txt' = " &middot; row 11 = window start value (not counted)"
+  'skip_blank' = " &middot; {0} row(s) without a label skipped"
   'empty_state' = "No boxes in this shift interval. Parsed rows: {0}. Target shift {1} &middot; {2}."
   'ts_plan' = "plan {0} (week {1}), {2} shift {3}"
   'ts_planfallback' = "plan {0} &mdash; nothing produced yet, expecting {1}"
@@ -527,6 +537,8 @@ $script:I18N = @{
   'svg_pct_stop' = "stopped"
   'tt_strip_pct' = "{0}: running {1} min, stopped {2} min ({3} - {4})"
   'tt_next_at' = "planned in the week schedule from {0}"
+  'nxt_from' = "from {0}"
+  'tt_next_from' = "scheduled in the week plan since {0}; the shift plan is not reached yet"
   'order_note' = "Order: running now first, then what comes next in the week schedule (by planned start), then what has not been made this week, and at the bottom what has already been made this week."
 
   # ---- sleutels die alleen lijn 9 gebruikt + de per-lijn titel ----
@@ -621,6 +633,7 @@ $script:I18N = @{
   'last_box' = "Последняя коробка: {0} &middot; разобрано строк: {1}{2}"
   'last_box_txt' = "{0} - {1} (коробка {2})"
   'skip_txt' = " &middot; строка 11 = стартовое значение окна (не учтена)"
+  'skip_blank' = " &middot; строк без этикетки пропущено: {0}"
   'empty_state' = "Нет коробок в этом интервале смены. Разобрано строк: {0}. Цель смены {1} &middot; {2}."
   'ts_plan' = "план {0} (неделя {1}), {2} смена {3}"
   'ts_planfallback' = "план {0} &mdash; ещё ничего не произведено, ожидается {1}"
@@ -670,6 +683,8 @@ $script:I18N = @{
   'svg_pct_stop' = "простой"
   'tt_strip_pct' = "{0}: работала {1} мин, стояла {2} мин ({3} - {4})"
   'tt_next_at' = "по графику недели с {0}"
+  'nxt_from' = "с {0}"
+  'tt_next_from' = "по графику недели идёт с {0}; план смены ещё не выполнен"
   'order_note' = "Порядок: сначала то, что идёт сейчас, затем то, что дальше по графику недели (по плановому старту), затем то, что на этой неделе ещё не делали, внизу — уже сделанное на этой неделе."
 
   # ---- sleutels die alleen lijn 9 gebruikt + de per-lijn titel ----
@@ -788,6 +803,42 @@ function Get-Counter([string]$label) {
     $parts = $clean -split '\|'
     if ($parts.Length -gt 0) { return ($parts[$parts.Length - 1]).Trim() }
     return ''
+}
+
+# HORIZON VAN DE OPHALING (ALLE lijnen samen). De cache wordt met vertraging weggeschreven: in
+# twee snapshots liep de laatste doos van een NORMAAL draaiende lijn 4 a 6 minuten achter op het
+# bestand. Met -StopMinutes 2 betekende 'laatste doos ouder dan nu - 2 min' dus bij ELKE render
+# 'de lijn staat stil'. Die gedeelde vertraging is hier te meten: de JONGSTE doos in het HELE
+# bestand (alle Boxruw-bladen) is het verste dat de ophaling gekomen is. Ligt de laatste doos van
+# DEZE lijn daar meer dan -StopMinutes achter, dan gaat het niet om de ophaling maar staat de lijn
+# echt stil - andere lijnen printten immers wel door. Voorbeeld 18/09 20:39: lijn 8 tot 20:15,
+# lijn 11 tot 20:35 -> lijn 8 stond echt stil; lijn 11 liep zelf maar 4,6 min achter (= ophaling).
+# Geeft $null als geen enkel blad leesbaar is; de aanroeper valt dan terug op de oude regel.
+function Get-CollectEnd($sheets, [datetime]$cutoff) {
+    $best = $null
+    foreach ($s in $sheets) {
+        if (([string]$s.Name) -notmatch '^Boxruw') { continue }
+        try {
+            $cells = $s.Cells; $anchor = $cells.Item($xlMaxRows, 2); $lastCell = $anchor.End($xlUp)
+            $lastRow = [int]$lastCell.Row
+            Rel $lastCell; Rel $anchor; Rel $cells
+            if ($lastRow -lt 11) { continue }
+            $vals  = $s.Range("A11:A$lastRow").Value2      # EEN marshaling-call, alleen de tijdkolom
+            $isArr = ($vals -is [array])
+            $hi    = if ($isArr) { $vals.GetUpperBound(0) } else { 1 }
+            for ($i = $hi; $i -ge 1; $i--) {
+                $v = if ($isArr) { $vals.GetValue($i, 1) } else { $vals }
+                if ($v -isnot [double]) { continue }
+                $ts = $null
+                try { $ts = [DateTime]::FromOADate([double]$v) } catch { continue }
+                if ($ts -gt $cutoff) { continue }          # tijdmachine (-Now): niets uit de toekomst
+                if ($null -eq $best -or $ts -gt $best) { $best = $ts }
+                break
+            }
+        }
+        catch { }
+    }
+    return $best
 }
 
 # PLOEGROOSTER. Door de week DRIE ploegen van 8 u (05-13 / 13-21 / 21-05), maar op ZATERDAG en
@@ -1475,6 +1526,7 @@ function Get-BoxData9 {
         TargetMode = 'unknown'; PlanDate = $null; WarnList = @(); PlanFileName = ''; PlanWeek = $null
         PlanSku = $null; ShiftNo = 0
         Rows = @(); Tempo = @{}; Total = 0; ParsedRows = 0; LastText = ''; StartRowSkipped = $false
+        BlankRows = 0                      # dozen zonder etiketstring: overgeslagen, niet geteld
         # losse onderdelen van 'laatste doos' - de zin zelf wordt PAS in Render-Html gezet (taal!)
         LastTimeText = ''; LastProduct = ''; LastCounter = ''
         ShiftStart = $win.Start; ShiftEnd = $win.End; ShiftMin = $shiftMin; Minutes = $minutes; MaxPerMin = 0
@@ -1550,7 +1602,16 @@ function Get-BoxData9 {
         $counts = @{}; $allProds = @{}; $parsed = 0; $lastTs = $null; $lastProd = $null; $lastCtr = $null
         for ($i = 1; $i -le $rmax; $i++) {
             $b = $rng.GetValue($i, 2)
-            if ($null -eq $b -or ([string]$b).Trim() -eq '') { break }   # stop bij EERSTE lege B
+            # LEGE B = EEN DOOS ZONDER ETIKET, GEEN EINDE VAN DE GEGEVENS. Zo'n rij heeft wel een
+            # tijd en C='DELTA', alleen de etiketstring is leeg (18/09 gebeurde dat op lijn 6 om
+            # 09:03:11 en 16:21:06, midden in een normale reeks). Dit LAS VROEGER ALS 'break' en
+            # gooide alles daarna weg: van de 12.022 dozen van lijn 6 bleven er 3.021 over en de
+            # hele ploeg 13-21 u was leeg, terwijl SAPSTATus gewoon productie toonde.
+            # Niet meetellen als doos: het uurblad (*RCDB) telt zo'n rij ook niet mee (uur 09 en
+            # uur 16 klopten tot op de doos met wat wij zonder deze rijen tellen).
+            # Het leesbereik is toch al begrensd door de laatste gevulde rij van kolom B, dus
+            # doorlopen kan geen losgeslagen staart opleveren.
+            if ($null -eq $b -or ([string]$b).Trim() -eq '') { $d.BlankRows++; continue }
             $parsed++
             $label = [string]$b
             $prod  = Get-ProductType $label
@@ -1715,8 +1776,16 @@ function Get-BoxData9 {
                 }
                 $prevTs = $sTs[$k]
             }
-            $tail = ($refNow - $prevTs).TotalMinutes
-            if ($tail -gt $StopMinutes) {
+            # ---- STAAT DE LIJN NU ECHT STIL, of loopt alleen de OPHALING achter? ----
+            # De cache wordt met vertraging weggeschreven (gemeten: 4 a 6 min bij lijnen die gewoon
+            # draaiden), dus 'laatste doos ouder dan nu - 2 min' betekende in de praktijk bij ELKE
+            # render 'stil'. Maatstaf is daarom de jongste doos in het HELE bestand (alle lijnen
+            # samen, zie Get-CollectEnd): printten andere lijnen intussen wel door, dan is de stilte
+            # van DEZE lijn echt. Lukt die meting niet, dan geldt de oude regel.
+            $tail       = ($refNow - $prevTs).TotalMinutes
+            $collectEnd = Get-CollectEnd $sheets $refNow
+            $lineLag    = if ($null -ne $collectEnd) { ($collectEnd - $prevTs).TotalMinutes } else { $tail }
+            if ($tail -gt $StopMinutes -and $lineLag -gt $StopMinutes) {
                 $stopList += [pscustomobject]@{ From = $prevTs; To = $refNow; Min = $tail; Kind = 'nu'; IsLongest = $false }
                 $d.NowStill = $true; $d.StillMin = [Math]::Round($tail)
             }
@@ -1904,7 +1973,7 @@ function Get-BoxData9 {
                     if     ($wp -and $wp.Desc.ContainsKey($k)) { $ds = [string]$wp.Desc[$k] }
                     elseif ($planDesc.ContainsKey($k))         { $ds = [string]$planDesc[$k] }
                     $wrows += [pscustomobject]@{ Sku = $k; Desc = $ds; Plan = $pl; Made = $mk; IsCur = ($k -eq $mainProd)
-                                                 NextAt = $null; LastMade = $null; OrderGroup = 0; OrderKey = 0.0; OrderKey2 = 0.0 }
+                                                 NextAt = $null; NextPast = $false; LastMade = $null; OrderGroup = 0; OrderKey = 0.0; OrderKey2 = 0.0 }
                 }
                 # ---- VOLGORDE, net als de producttabel van de machinelijnen (vraag gebruiker 17/09/2026) ----
                 # nu -> wat volgens het weekrooster nog komt (op gepland begin) -> nog niet gemaakt ->
@@ -1920,6 +1989,8 @@ function Get-BoxData9 {
                         $sp = 0.0; if ($planPerSku.ContainsKey($w.Sku)) { $sp = [double]$planPerSku[$w.Sku] }
                         $o = Get-SkuOrder $w.Sku $w.IsCur $nextAt $lastMade $sc $sp $w.Made $w.Plan $win.Start
                         $w.NextAt = $o.NextAt; $w.LastMade = $o.LastMade
+                        # gepland begin dat AL voorbij is = de run loopt, alleen het ploegplan is nog niet gehaald
+                        $w.NextPast = ($null -ne $o.NextAt -and $o.NextAt -le $nowDt)
                         $w.OrderGroup = $o.Group; $w.OrderKey = $o.Key; $w.OrderKey2 = $o.Key2
                     }
                     $wrows = @($wrows | Sort-Object OrderGroup, OrderKey, OrderKey2, Sku)
@@ -2001,6 +2072,7 @@ function Get-BoxData11 {
         TargetMode = 'unknown'; PlanDate = $null; WarnList = @(); PlanFileName = ''; PlanWeek = $null
         PlanSku = $null; ShiftNo = 0
         Rows = @(); Tempo = @{}; Total = 0; ParsedRows = 0; LastText = ''; StartRowSkipped = $false
+        BlankRows = 0                      # dozen zonder etiketstring: overgeslagen, niet geteld
         # losse onderdelen van 'laatste doos' - de zin zelf wordt PAS in Render-Html gezet (taal!)
         LastTimeText = ''; LastProduct = ''; LastCounter = ''
         ShiftStart = $win.Start; ShiftEnd = $win.End; ShiftMin = $shiftMin; Minutes = $minutes; MaxPerMin = 0
@@ -2089,7 +2161,10 @@ function Get-BoxData11 {
 
             for ($i = 1; $i -le $rmax; $i++) {
                 $b = $rng.GetValue($i, 2)
-                if ($null -eq $b -or ([string]$b).Trim() -eq '') { break }   # stop bij EERSTE lege B
+                # LEGE B = EEN DOOS ZONDER ETIKET, GEEN EINDE VAN DE GEGEVENS - zie de uitleg bij
+                # dezelfde regel in Get-BoxData9. Vroeger stopte het lezen hier ('break'), waardoor
+                # een enkele etiketloze doos de rest van de ploeg onzichtbaar maakte.
+                if ($null -eq $b -or ([string]$b).Trim() -eq '') { $d.BlankRows++; continue }
                 $parsed++
                 $label = [string]$b
                 $prod  = Get-ProductType $label
@@ -2289,8 +2364,14 @@ function Get-BoxData11 {
                 }
                 $prevTs = $sTs[$k]
             }
-            $tail = ($refNow - $prevTs).TotalMinutes
-            if ($tail -gt $StopMinutes) {
+            # ---- STAAT DE LIJN NU ECHT STIL, of loopt alleen de OPHALING achter? ----
+            # Zie Get-CollectEnd: de jongste doos in het HELE bestand is het verste dat de ophaling
+            # gekomen is. Alleen als DEZE lijn daar meer dan -StopMinutes bij achterblijft ligt ze
+            # echt stil; anders is de staart gewoon de gedeelde schrijfvertraging (4 a 6 min).
+            $tail       = ($refNow - $prevTs).TotalMinutes
+            $collectEnd = Get-CollectEnd $sheets $refNow
+            $lineLag    = if ($null -ne $collectEnd) { ($collectEnd - $prevTs).TotalMinutes } else { $tail }
+            if ($tail -gt $StopMinutes -and $lineLag -gt $StopMinutes) {
                 $stopList += [pscustomobject]@{ From = $prevTs; To = $refNow; Min = $tail; Kind = 'nu'; IsLongest = $false }
                 $d.NowStill = $true; $d.StillMin = [Math]::Round($tail)
             }
@@ -2341,7 +2422,21 @@ function Get-BoxData11 {
                 }
                 # staart = stilte t.o.v. de data-horizon; loopt de machine gewoon door, dan is de
                 # laatste (gedeelde) minuten geen stilstand van HAAR maar vertraging van de ophaling.
-                $mStill = ((($dataEnd - $prev).TotalMinutes) -gt $StopMinutes)
+                # Het verschil met de horizon telt alleen mee zolang de LIJN zelf draaide: lag de
+                # lijn in dat venster stil, dan viel er voor deze machine niets te maken. Zonder die
+                # correctie bepaalt een enkele late doos van een andere machine het oordeel - 18/09
+                # printten 801/804/805 elk nog EEN doos om 20:15 nadat alles om 19:46 was gestopt,
+                # waardoor 803 (laatste doos 20:04) 'stil 11 min' kreeg terwijl er lijnbreed niets
+                # liep. Met deze correctie: 803 -> 0,1 min (draait), 806 -> 6,4 min (echt gestopt).
+                $mLag = ($dataEnd - $prev).TotalMinutes
+                foreach ($ls in $stopList) {
+                    $lf = if ($ls.From -gt $prev)    { $ls.From } else { $prev }
+                    $lt = if ($ls.To   -lt $dataEnd) { $ls.To }   else { $dataEnd }
+                    $ov = ($lt - $lf).TotalMinutes
+                    if ($ov -gt 0) { $mLag -= $ov }
+                }
+                if ($mLag -lt 0) { $mLag = 0 }
+                $mStill = ($mLag -gt $StopMinutes)
                 $mTail  = ($refNow - $prev).TotalMinutes
                 if ($mStill) {
                     $mStops += [pscustomobject]@{ From = $prev; To = $refNow; Min = $mTail; Kind = 'nu' }
@@ -2376,18 +2471,26 @@ function Get-BoxData11 {
                 # tempo van de lopende run INCLUSIEF haar stilstanden: dat is de eerlijke
                 # verwachting voor de rest van de ploeg (stopt de machine vaak, dan zakt het tempo).
                 $mPerMin  = if ($runEl -ge 1) { $runCount / $runEl } else { 0.0 }
-                $mAdd     = $mPerMin * $remain
+                # Staat de machine stil, dan maakt ze NU niets: dan telt ze niet mee in 'tempo nu',
+                # niet in de prognose van haar smaak en niet in die van de lijn. Anders kreeg een
+                # smaak een tempo en een oplopende prognose van een machine die al een half uur
+                # zweeg (18/09: 340051174 stond op 828 dozen, prognose 868, tempo 1,89).
+                $mEff     = if ($mStill) { 0.0 } else { $mPerMin }
+                $mAdd     = $mEff * $remain
                 $mProj    = $cnt + $mAdd
 
                 # dozen met een leeg etiket ('(onbekend)') zijn echte dozen, maar geen machine:
                 # ze tellen wel mee in de aantallen, niet in 'hoeveel machines draaien'.
-                if ($mName -match '^\d+$') { if ($mStill) { $nStopped++ } else { $nRunning++ } }
-                $sumPerMin  += $mPerMin
+                # Ligt de HELE lijn stil, dan draait er niets - ook niet de machines die tot de
+                # horizon meeliepen. Anders meldde de kop '4 draaien' terwijl de rode strook
+                # erboven zei dat de lijn stilstond.
+                if ($mName -match '^\d+$') { if ($mStill -or $d.NowStill) { $nStopped++ } else { $nRunning++ } }
+                $sumPerMin  += $mEff
                 $sumStopMin += $mStopSum
                 $sumRunMin  += $mRunMin
 
                 if ($projAdd.ContainsKey($curProd))  { $projAdd[$curProd]  += $mAdd }   else { $projAdd[$curProd]  = $mAdd }
-                if ($prodRate.ContainsKey($curProd)) { $prodRate[$curProd] += $mPerMin } else { $prodRate[$curProd] = $mPerMin }
+                if ($prodRate.ContainsKey($curProd)) { $prodRate[$curProd] += $mEff } else { $prodRate[$curProd] = $mEff }
                 if (-not $prodMach.ContainsKey($curProd)) { $prodMach[$curProd] = @() }
                 $prodMach[$curProd] += $mName
 
@@ -2408,7 +2511,7 @@ function Get-BoxData11 {
                     AvailPct   = if ($machElapsed -gt 0) { 100.0 * $mRunMin / $machElapsed } else { 0.0 }
                     IsReal     = ($mName -match '^\d+$')
                     NetPerMin  = $mNet
-                    PerMin     = $mPerMin
+                    PerMin     = $mEff      # 0 zodra de machine stilstaat; haar netto tempo staat in de tooltip
                     RunCount   = $runCount
                     RunStartText = $runStart.ToString('HH:mm')
                     IsStill    = $mStill
@@ -2472,9 +2575,15 @@ function Get-BoxData11 {
                     $r.HasProj  = $true
                     $r.PerMin   = if ($prodRate.ContainsKey($r.Product)) { [double]$prodRate[$r.Product] } else { 0.0 }
                     $r.Machines = if ($prodMach.ContainsKey($r.Product)) { @($prodMach[$r.Product]) } else { @() }
-                    # 'draait nu' = er staat minstens EEN machine op deze smaak die niet stilstaat
+                    # 'draait nu' = er staat minstens EEN machine op deze smaak die niet stilstaat.
+                    # Ligt de HELE lijn stil, dan draait er per definitie niets en hoort er bij geen
+                    # enkele smaak 'nu' te staan. De machinetabel deed dat al ($d.NowStill), de
+                    # producttabel niet - daardoor kon een smaak 'nu' krijgen terwijl de rode strook
+                    # erboven meldde dat de lijn stilstond.
                     $r.IsMain   = $false
-                    foreach ($mm in $machines) { if ($mm.Product -eq $r.Product -and -not $mm.IsStill) { $r.IsMain = $true; break } }
+                    if (-not $d.NowStill) {
+                        foreach ($mm in $machines) { if ($mm.Product -eq $r.Product -and -not $mm.IsStill) { $r.IsMain = $true; break } }
+                    }
                 }
 
                 # tweede schatting: tempo van de laatste RecentMinutes minuten (hele lijn)
@@ -2620,7 +2729,7 @@ function Get-BoxData11 {
                 Machines = @($r.Machines)
                 IsCur    = [bool]$r.IsMain
                 # volgorde in de tabel (zie hieronder)
-                NextAt   = $null; LastMade = $null; OrderGroup = 0; OrderKey = 0.0; OrderKey2 = 0.0
+                NextAt   = $null; NextPast = $false; LastMade = $null; OrderGroup = 0; OrderKey = 0.0; OrderKey2 = 0.0
             }
         }
         foreach ($w in $d.WeekRows) {
@@ -2631,7 +2740,7 @@ function Get-BoxData11 {
                     WeekMadeBefore = 0; WeekDone = $false
                     Count    = 0; Plan = 0.0; Proj = 0.0; HasProj = $false; PerMin = 0.0
                     Machines = @(); IsCur = $false
-                    NextAt   = $null; LastMade = $null; OrderGroup = 0; OrderKey = 0.0; OrderKey2 = 0.0
+                    NextAt   = $null; NextPast = $false; LastMade = $null; OrderGroup = 0; OrderKey = 0.0; OrderKey2 = 0.0
                 }
             }
             $c = $combi[$w.Sku]
@@ -2666,6 +2775,8 @@ function Get-BoxData11 {
         foreach ($cv in $combi.Values) {
             $o = Get-SkuOrder $cv.Sku $cv.IsCur $nextAt $lastMade $cv.Count $cv.Plan $cv.WeekMade $cv.WeekPlan $win.Start
             $cv.NextAt = $o.NextAt; $cv.LastMade = $o.LastMade
+            # gepland begin dat AL voorbij is = de run loopt, alleen het ploegplan is nog niet gehaald
+            $cv.NextPast = ($null -ne $o.NextAt -and $o.NextAt -le $nowDt)
             $cv.OrderGroup = $o.Group; $cv.OrderKey = $o.Key; $cv.OrderKey2 = $o.Key2
         }
         $d.SkuNames    = $skuNames
@@ -3349,6 +3460,7 @@ function Render-Html9($d, [string]$lang = 'nl') {
                 $table += "<div class='wdesc'>$((T 'weekdone_note') -f (HtmlEnc $wn.Sku), (NF $wn.MadeBefore), (NF $wn.WeekPlan), (NF $wn.Left), (NF $d.Target))</div>"
             }
             $skipTxt  = if ($d.StartRowSkipped) { T 'skip_txt' } else { "" }
+            if ($d.BlankRows -gt 0) { $skipTxt += (T 'skip_blank') -f $d.BlankRows }
             $lastHtml = if ($d.LastText) { "<div class='wdesc'>$((T 'last_box') -f $lastBoxTxt, $d.ParsedRows, $skipTxt)</div>" } else { "" }
         }
         else {
@@ -3368,9 +3480,13 @@ function Render-Html9($d, [string]$lang = 'nl') {
                         elseif ($w.Made -le 0) { " <span class='soon'>$(T 'kind_notstarted')</span>" }
                         else { "" }
                 # wacht in het rooster: wanneer de smaak gepland staat (daarop is de volgorde gebaseerd)
+                # Ligt dat geplande begin AL achter ons, dan leest een kale 'vr 13:00' als een
+                # afspraak in de TOEKOMST terwijl de run in deze ploeg hoort te lopen. In dat geval
+                # 'vanaf ...' met een eigen kleur.
                 if ($w.OrderGroup -eq 1 -and $null -ne $w.NextAt) {
                     $nxTxt = $w.NextAt.ToString('ddd HH:mm', $cu2)
-                    $mark += " <span class='nxt' title='$(HtmlEnc ((T 'tt_next_at') -f $nxTxt))'>$(HtmlEnc $nxTxt)</span>"
+                    if ($w.NextPast) { $mark += " <span class='nxt nxtr' title='$(HtmlEnc ((T 'tt_next_from') -f $nxTxt))'>$(HtmlEnc ((T 'nxt_from') -f $nxTxt))</span>" }
+                    else             { $mark += " <span class='nxt' title='$(HtmlEnc ((T 'tt_next_at') -f $nxTxt))'>$(HtmlEnc $nxTxt)</span>" }
                 }
                 $plTxt = if ($w.Plan -gt 0) { NF $w.Plan } else { "&mdash;" }
                 $rest  = [double]$w.Plan - [double]$w.Made
@@ -3504,6 +3620,7 @@ function Render-Html9($d, [string]$lang = 'nl') {
            ".soon{background:#334155;color:#cbd5e1;font-size:11px;padding:1px 7px;border-radius:8px;margin-left:4px;vertical-align:middle}" +
            # gepland begin van een smaak die in het weekrooster wacht (bv. 'do 14:30')
            ".nxt{border:1px solid #475569;color:#cbd5e1;font-size:11px;font-weight:400;padding:0 6px;border-radius:8px;margin-left:4px;vertical-align:middle;white-space:nowrap;font-variant-numeric:tabular-nums}" +
+           ".nxt.nxtr{border-color:#a16207;color:#fbbf24}" +
            ".card .split .tv{white-space:nowrap}.card .split .ph{color:#94a3b8;font-size:12px;margin-left:5px}" +
            # losse regel onder het grote getal (bv. 'Target bereikt om 21:19'): gewoon links
            # uitgelijnd meelopende tekst, breekt netjes af als de kaart smal is
@@ -3690,7 +3807,7 @@ function Render-Html11($d, [string]$lang = 'nl') {
             foreach ($m in $d.Machines) {
                 $stCls  = if ($m.IsStill) { "behind" } elseif ($d.NowStill) { "" } else { "done" }
                 $stTxt  = if ($m.IsStill)    { (T 'st_still') -f (NF $m.StillMin) }
-                          elseif ($d.NowStill) { (T 'st_lag')   -f (NF $d.StillMin) }
+                          elseif ($d.NowStill) { (T 'st_still') -f (NF $d.StillMin) }
                           else                 { T 'st_running' }
                 $badge  = if ($m.IsStill -or $d.NowStill) { "" } else { " <span class='nu'>$(T 'kind_nowmark')</span>" }
                 $mName  = if ($d.SkuNames.ContainsKey($m.Product)) { [string]$d.SkuNames[$m.Product] } else { '' }
@@ -3778,6 +3895,7 @@ function Render-Html11($d, [string]$lang = 'nl') {
             $table = "<div class='warn'>$((T 'empty_state') -f $d.ParsedRows, (NF $d.Target), $tsrc)</div>"
         }
         $skipTxt  = if ($d.StartRowSkipped) { T 'skip_txt' } else { "" }
+        if ($d.BlankRows -gt 0) { $skipTxt += (T 'skip_blank') -f $d.BlankRows }
         $lastHtml = if ($d.LastText) { "<div class='wdesc'>$((T 'last_box') -f $lastBoxTxt, $d.ParsedRows, $skipTxt)</div>" } else { "" }
 
         if ($d.HasCombined) {
@@ -3791,9 +3909,13 @@ function Render-Html11($d, [string]$lang = 'nl') {
                         else { "" }
                 if ($r.WeekDone) { $mark += " <span class='soon'>$(T 'kind_weekdone')</span>" }
                 # wacht in het rooster: wanneer de smaak gepland staat (daarop is de volgorde gebaseerd)
+                # Ligt dat geplande begin AL achter ons, dan leest een kale 'vr 13:00' als een
+                # afspraak in de TOEKOMST terwijl de run in deze ploeg hoort te lopen. In dat geval
+                # 'vanaf ...' met een eigen kleur.
                 if ($r.OrderGroup -eq 1 -and $null -ne $r.NextAt) {
                     $nxTxt = $r.NextAt.ToString('ddd HH:mm', $cu2)
-                    $mark += " <span class='nxt' title='$(HtmlEnc ((T 'tt_next_at') -f $nxTxt))'>$(HtmlEnc $nxTxt)</span>"
+                    if ($r.NextPast) { $mark += " <span class='nxt nxtr' title='$(HtmlEnc ((T 'tt_next_from') -f $nxTxt))'>$(HtmlEnc ((T 'nxt_from') -f $nxTxt))</span>" }
+                    else             { $mark += " <span class='nxt' title='$(HtmlEnc ((T 'tt_next_at') -f $nxTxt))'>$(HtmlEnc $nxTxt)</span>" }
                 }
                 # --- deze week ---
                 $wPct = ""
@@ -3984,6 +4106,7 @@ function Render-Html11($d, [string]$lang = 'nl') {
            ".shift td.gsep,.shift th.gsep{border-left:1px solid #475569}" +
            # gepland begin van een smaak die in het weekrooster wacht (bv. 'do 14:30')
            ".nxt{border:1px solid #475569;color:#cbd5e1;font-size:11px;font-weight:400;padding:0 6px;border-radius:8px;margin-left:4px;vertical-align:middle;white-space:nowrap;font-variant-numeric:tabular-nums}" +
+           ".nxt.nxtr{border-color:#a16207;color:#fbbf24}" +
            ".shift td .pcs{display:inline-block;min-width:54px;text-align:right;font-size:12px;margin-left:6px;font-weight:600}" +
            ".shift td .pcs.g{color:#22c55e}.shift td .pcs.a{color:#fbbf24}.shift td .pcs.r{color:#ef4444}" +
            ".hist td{font-size:14px}.hist tr.daybreak td{border-top:2px solid #475569}" +
